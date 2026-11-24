@@ -32,7 +32,7 @@ final class FinderCommands {
             case .missingTerminal(let application):
                 String(
                     localized:
-                        "The terminal application at \(application.path) is unavailable. Choose another application in Settings."
+                        "The terminal application at \(application.path) isn’t available. Choose another application in Settings."
                 )
             case .itemFailed(let error, let file):
                 UserMessages.describe(error, file: file)

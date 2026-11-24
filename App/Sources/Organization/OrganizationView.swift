@@ -103,8 +103,8 @@ struct OrganizationView: View {
                 Toggle(
                     "Allow new subcategories within these category folders",
                     isOn: $controller.policy.allowNewSubcategories)
-                Toggle("Rename opaque camera, scan and random filenames", isOn: $controller.policy.renameOpaqueFiles)
-                LabeledContent("Stability delay") {
+                Toggle("Rename files with camera, scanner or random names", isOn: $controller.policy.renameOpaqueFiles)
+                LabeledContent("Wait before moving") {
                     TextField(
                         "Seconds", value: $controller.policy.stabilityDelay,
                         format: .number.precision(.fractionLength(0))
@@ -218,8 +218,8 @@ struct OrganizationView: View {
                         }
                     }
                 }
-                TableColumn("Batch") { row in
-                    Button("Undo Batch") { controller.undo(row.batch) }.disabled(row.batch.undone)
+                TableColumn("Operation") { row in
+                    Button("Undo Operation") { controller.undo(row.batch) }.disabled(row.batch.undone)
                 }
             }
         }

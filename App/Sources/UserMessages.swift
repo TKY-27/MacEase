@@ -40,9 +40,10 @@ enum UserMessages {
         }
         switch reason {
         case .unsupported:
-            return String(localized: "Comparison supports successful still-image compression and conversion only.")
+            return String(
+                localized: "Only still images that were compressed or converted successfully can be compared.")
         case .unavailable:
-            return String(localized: "This result is no longer available in this Activity session.")
+            return String(localized: "This result is no longer available.")
         case .missing(let file):
             return String(localized: "“\(file)” is missing. Select an existing file in Finder and run a new operation.")
         case .changed(let file):
@@ -269,9 +270,9 @@ enum UserMessages {
                     "Couldn’t convert “\(file)”: this format cannot preserve its audio channel layout. Choose another output format."
             )
         case .audioCopyUnsupported:
-            String(localized: "This audio cannot be extracted unchanged. Choose an explicit conversion format.")
+            String(localized: "This audio can’t be extracted without converting it. Choose a format to convert to.")
         case .audioCopyTimingUnsupported:
-            String(localized: "This audio timing cannot be copied unchanged. Choose a lossless conversion format.")
+            String(localized: "This audio’s timing can’t be kept without converting it. Choose a lossless format.")
         case .audioMetadataUnsupported:
             String(
                 localized:
@@ -378,7 +379,7 @@ enum UserMessages {
     static func describe(_ reason: SkipReason, file: String) -> String {
         switch reason {
         case .kindMismatch:
-            String(localized: "“\(file)” does not contain what its name suggests.")
+            String(localized: "The contents of “\(file)” don’t match its file extension.")
         case .isDirectory:
             String(localized: "“\(file)” is a folder.")
         case .notADirectory:
@@ -388,7 +389,7 @@ enum UserMessages {
         case .alreadySDR:
             String(localized: "“\(file)” is already SDR and was kept without re-encoding.")
         case .outputNotSmaller:
-            String(localized: "“\(file)” is already as small as it gets.")
+            String(localized: "“\(file)” can’t be made any smaller.")
         case .noUpscale:
             String(localized: "“\(file)” is already smaller than the requested size.")
         case .nothingToRemove:
@@ -467,7 +468,7 @@ enum UserMessages {
         case .pngOptimizationSkipped:
             String(
                 localized:
-                    "Optional lossless PNG optimization skipped to stay within the memory budget."
+                    "Lossless PNG optimization was skipped because it would need too much memory."
             )
         case .imagePaletteReduced(let colors):
             String(localized: "Palette reduced to at most \(colors) colors.")
@@ -499,7 +500,7 @@ enum UserMessages {
         case .archiveFolderAttributesNotRestored:
             String(localized: "Some extracted folders use default permissions and modified times.")
         case .hdrProvenanceUnknown:
-            String(localized: "Source signals HDR; capture or expansion origin unknown.")
+            String(localized: "The source is marked as HDR, but it’s unknown whether it was captured in HDR.")
         case .dolbyVisionRemoved:
             String(
                 localized: "Dolby Vision dynamic metadata omitted.",
@@ -588,7 +589,8 @@ enum UserMessages {
                     "Couldn’t process “\(file)”: it contains content MacEase can’t carry over. Nothing was changed.")
         case .frameMemoryExceeded:
             String(
-                localized: "“\(file)” exceeds the frame memory budget. Use fewer or smaller frames.",
+                localized:
+                    "“\(file)” has more frame data than MacEase can hold in memory. Use fewer or smaller frames.",
                 comment: "Limit protects available memory"
             )
         case .chainedStream:
@@ -610,11 +612,11 @@ enum UserMessages {
         case .segmentAlreadyReversed:
             String(localized: "This segment is already reversed. Restore forward playback first.")
         case .invalidNumericParameter:
-            String(localized: "Choose finite numeric values within the supported range.")
+            String(localized: "Enter numbers within the supported range.")
         case .externalMediaReference:
             String(
                 localized:
-                    "This file refers to media in another file, so MacEase can't open it. Export a self-contained copy in the app that made it."
+                    "This file refers to media in another file, so MacEase can’t open it. Export a self-contained copy in the app that made it."
             )
         }
     }

@@ -28,7 +28,7 @@ struct AboutView: View {
             Text("Version \(Self.info("CFBundleShortVersionString")) (\(Self.info("CFBundleVersion")))")
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
-            Text("Convert, compress and tidy files from the Finder menu.")
+            Text("Convert, compress and organize files from the Finder menu.")
                 .multilineTextAlignment(.center)
             HStack(spacing: Self.linkSpacing) {
                 if let repository = Self.repository {

@@ -683,10 +683,10 @@ struct MediaDownloadView: View {
                     Text(
                         model.format.requiresReencoding
                             ? String(
-                                localized: "This format may require re-encoding when the source codec is incompatible.")
+                                localized: "Videos may be re-encoded to fit this format.")
                             : String(
                                 localized:
-                                    "Keeps source quality without re-encoding. Container merging may be required.")
+                                    "Keeps the original quality without re-encoding.")
                     )
                     if !model.isAudioOnly, model.resolutionsDiffer {
                         Text("The selected items share no resolution, so each downloads at its best.")

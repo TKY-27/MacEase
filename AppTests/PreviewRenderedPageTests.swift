@@ -308,7 +308,7 @@ final class PreviewRenderedPageTests: XCTestCase {
             picker.sendAction(picker.action, to: picker.target)
 
             let reportedFourMB = try await PreviewFixtures.waitUntil(timeout: .seconds(2)) {
-                PreviewFixtures.visibleTexts(in: content).contains("Files larger than 4 MB can't be previewed here.")
+                PreviewFixtures.visibleTexts(in: content).contains("Files larger than 4 MB can’t be previewed here.")
             }
             XCTAssertTrue(reportedFourMB, "\(PreviewFixtures.visibleTexts(in: content))")
         }

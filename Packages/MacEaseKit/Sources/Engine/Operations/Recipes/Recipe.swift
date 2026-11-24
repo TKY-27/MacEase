@@ -155,7 +155,8 @@ public enum RecipeError: LocalizedError, Equatable {
         case .unsupportedSchema(let schema):
             String(localized: "This recipe library uses an unsupported version: \(schema).")
         case .unsupportedInput(let name): String(localized: "The recipe has no supported output for \(name).")
-        case .destinationRequired: String(localized: "Choose an output folder for files from different folders.")
+        case .destinationRequired:
+            String(localized: "The selected files are in different folders. Choose an output folder.")
         case .invalidDestination: String(localized: "The output destination must be a writable folder.")
         case .sourceChanged(let name): String(localized: "The source changed while finishing: \(name).")
         case .noOutputs: String(localized: "The recipe produced no required outputs.")

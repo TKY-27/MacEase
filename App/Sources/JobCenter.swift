@@ -164,7 +164,7 @@ final class JobCenter {
             let alert = NSAlert()
             alert.messageText = MenuStrings.operationName(entry.op)
             alert.informativeText = String(
-                localized: "Saved values are invalid. Review this operation in Settings.",
+                localized: "The saved values for this operation aren’t valid. Check them in Settings.",
                 comment: "Explains rejected saved parameters")
             alert.runModal()
             return
@@ -368,7 +368,7 @@ final class JobCenter {
                 notifier.notify(
                     title: String(localized: "Undo", comment: "Notification title after undo"),
                     body: String(
-                        localized: "This batch is still running. Try Undo after it finishes.",
+                        localized: "This operation is still running. Undo it after it finishes.",
                         comment: "Explains why running batches cannot undo"))
             } catch {
                 let failure = error as NSError

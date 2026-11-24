@@ -1,6 +1,22 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "NSAppleEventsUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MacEase follows your Finder selection to show files in Finder Preview."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finderプレビューにファイルを表示するために、Finderで選択している項目を読み取ります。"
+          }
+        }
+      }
+    },
     "NSLocalNetworkUsageDescription" : {
       "localizations" : {
         "en" : {
@@ -13,6 +29,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "共有中は、選択したファイルのみをローカルネットワーク上のデバイスと共有します。"
+          }
+        }
+      }
+    },
+    "NSSpeechRecognitionUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MacEase transcribes speech on this Mac to create subtitles."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "字幕を作成するために、このMacで音声を書き起こします。"
           }
         }
       }

@@ -23,7 +23,7 @@ final class FinderPreviewToggleTests: XCTestCase {
         XCTAssertEqual(MenuStrings.previewTitle(open: false), String(localized: "Show Finder Preview"))
         let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
         XCTAssertEqual(
-            japanese.localizedString(forKey: "Hide Finder Preview", value: nil, table: nil), "Finderプレビューを閉じる")
+            japanese.localizedString(forKey: "Hide Finder Preview", value: nil, table: nil), "Finderプレビューを非表示")
         XCTAssertEqual(
             japanese.localizedString(forKey: "Show Finder Preview", value: nil, table: nil), "Finderプレビューを表示")
     }

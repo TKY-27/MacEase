@@ -185,14 +185,14 @@ struct MediaEditorView: View {
                 } label: {
                     Text("Copy Edits to Selected").frame(maxWidth: .infinity)
                 }
-                .help("Copy this photo's edits to the selected photos")
+                .help("Copy this photo’s edits to the selected photos")
                 .disabled(model.selectedPhotos.isEmpty)
                 Button {
                     model.applyPhotoEdits(toAll: true)
                 } label: {
                     Text("Copy Edits to All Photos").frame(maxWidth: .infinity)
                 }
-                .help("Copy this photo's edits to every photo in the list")
+                .help("Copy this photo’s edits to every photo in the list")
             }
             .lineLimit(1)
             .padding(.horizontal, 10)
