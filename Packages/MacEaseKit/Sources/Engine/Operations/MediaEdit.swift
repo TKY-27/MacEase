@@ -11,13 +11,14 @@ public struct MediaSourceStamp: Codable, Hashable, Sendable {
         stamp = try FileStamp(of: url, includingIdentity: true)
     }
 
-    public func validate(_ url: URL) throws {
+    public func validate(_ url: URL, message: String? = nil) throws {
         guard stamp.matchesIdentity(url.path) else {
             throw EngineError.invalidInput(
                 .malformed(
-                    String(
-                        localized:
-                            "The original changed while editing. Close the editor and reopen the file.")))
+                    message
+                        ?? String(
+                            localized:
+                                "The original changed while editing. Close the editor and reopen the file.")))
         }
     }
 }

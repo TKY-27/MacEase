@@ -75,38 +75,43 @@ enum Transcoder {
                     timeline: plan.timeline, sourceInputs: plan.sourceInputs))
         }
         let audioInput = plan.sourceInputs?.first(where: { $0.audio != nil }) ?? input
-        if let audio = plan.audio, let track = audioInput.audio {
+        if let audio = plan.audio {
             let number = stages.count + 1
-            switch audio {
-            case .copy:
-                stages.append(
-                    try await PacketCopyStage(
-                        input: input, track: track, number: number, start: start, end: end,
-                        destination: plan.container))
-            case .encode(let codec, let kilobits):
-                if let timeline = plan.timeline {
+            if let timeline = plan.timeline, case .encode(let codec, let kilobits) = audio {
+                if audioInput.audio != nil || timeline.music != nil {
                     let source = try TimelinePCMSource(
-                        input: audioInput, track: track, timeline: timeline, inputs: plan.sourceInputs,
+                        input: audioInput, track: audioInput.audio, timeline: timeline, inputs: plan.sourceInputs,
                         stagingDirectory: url.deletingLastPathComponent())
                     stages.append(
                         try AudioEncodeStage(
-                            input: input, track: track, number: number, codec: codec, kilobits: kilobits,
+                            input: input, track: audioInput.audio, number: number, codec: codec, kilobits: kilobits,
                             start: 0, end: progressEnd, sourceOverride: VideoPCMSource(timeline: source),
                             destination: plan.container))
-                } else if plan.playbackSpeed == 1 {
+                }
+            } else if let track = audioInput.audio {
+                switch audio {
+                case .copy:
                     stages.append(
-                        try AudioEncodeStage(
-                            input: input, track: track, number: number, codec: codec, kilobits: kilobits,
-                            start: start, end: end, destination: plan.container, volume: plan.volume))
-                } else {
-                    let stretched = try await TimeStretchedAudio(
-                        input: input, track: track, start: start, end: end, speed: plan.playbackSpeed,
-                        stagingDirectory: url.deletingLastPathComponent())
-                    stages.append(
-                        try AudioEncodeStage(
-                            input: input, track: track, number: number, codec: codec, kilobits: kilobits,
-                            start: start, end: end, sourceOverride: VideoPCMSource(stretched: stretched, start: start),
-                            destination: plan.container, volume: plan.volume))
+                        try await PacketCopyStage(
+                            input: input, track: track, number: number, start: start, end: end,
+                            destination: plan.container))
+                case .encode(let codec, let kilobits):
+                    if plan.playbackSpeed == 1 {
+                        stages.append(
+                            try AudioEncodeStage(
+                                input: input, track: track, number: number, codec: codec, kilobits: kilobits,
+                                start: start, end: end, destination: plan.container, volume: plan.volume))
+                    } else {
+                        let stretched = try await TimeStretchedAudio(
+                            input: input, track: track, start: start, end: end, speed: plan.playbackSpeed,
+                            stagingDirectory: url.deletingLastPathComponent())
+                        stages.append(
+                            try AudioEncodeStage(
+                                input: input, track: track, number: number, codec: codec, kilobits: kilobits,
+                                start: start, end: end,
+                                sourceOverride: VideoPCMSource(stretched: stretched, start: start),
+                                destination: plan.container, volume: plan.volume))
+                    }
                 }
             }
         }

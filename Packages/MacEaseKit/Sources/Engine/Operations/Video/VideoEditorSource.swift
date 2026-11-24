@@ -19,6 +19,7 @@ public actor VideoEditorSource {
     private let preview: MediaPreview
     private let staging: StagingArea
     private var proxies: [String: URL] = [:]
+    private var musicProxy: (url: URL, stamp: MediaSourceStamp, playbackURL: URL, directory: URL?)?
     private var directories: [URL] = []
     private var closed = false
     private var frameTimes: [Int64]?
@@ -186,12 +187,69 @@ public actor VideoEditorSource {
         try edit.geometry.validate()
         let timeline = try VideoTimeline(edit: edit, sourceDuration: details.duration)
         let playback = try await playbackURL(sdr: edit.changesColor)
+        let resolvedMusicURL: URL?
+        if let music = timeline.music {
+            resolvedMusicURL = try await musicPlaybackURL(for: music)
+        } else {
+            clearMusicProxy()
+            resolvedMusicURL = nil
+        }
         let payload = try await VideoEditorPlayback.make(
-            url: playback, timeline: timeline, edit: edit, sourceSize: details.size)
+            url: playback, timeline: timeline, edit: edit, sourceSize: details.size, musicURL: resolvedMusicURL)
         try Task.checkCancellation()
         guard !closed else { throw CancellationError() }
         try details.stamp.validate(url)
+        try timeline.music?.validateSource()
         return payload
+    }
+
+    private func musicPlaybackURL(for music: BackgroundMusic) async throws -> URL {
+        guard !closed else { throw CancellationError() }
+        try music.validateSource()
+        if let cached = musicProxy, cached.url == music.url, cached.stamp == music.stamp {
+            return cached.playbackURL
+        }
+        clearMusicProxy()
+        let input: AudioInput
+        do {
+            input = try AudioInput(url: music.url)
+        } catch {
+            throw EngineError.wrapping(error, path: music.url.path)
+        }
+        if try await AudioPreviewSource.canPlayDirectly(input) {
+            guard !closed else { throw CancellationError() }
+            clearMusicProxy()
+            musicProxy = (music.url, music.stamp, music.url, nil)
+            return music.url
+        }
+        let directory = try staging.makeDirectory(for: music.url)
+        directories.append(directory)
+        let output = directory.appending(path: "music-preview.wav")
+        do {
+            try await AudioPreviewSource.writePreviewWAV(for: input, to: output) { [weak self] in
+                guard let self else { return true }
+                return await self.closed
+            }
+            try Task.checkCancellation()
+            guard !closed else { throw CancellationError() }
+            try music.validateSource()
+            clearMusicProxy()
+            musicProxy = (music.url, music.stamp, output, directory)
+            return output
+        } catch {
+            staging.remove(directory)
+            directories.removeAll { $0 == directory }
+            throw error
+        }
+    }
+
+    private func clearMusicProxy() {
+        guard let existing = musicProxy else { return }
+        if let directory = existing.directory {
+            staging.remove(directory)
+            directories.removeAll { $0 == directory }
+        }
+        musicProxy = nil
     }
 
     private nonisolated static func canPlay(_ url: URL) async throws -> Bool {
@@ -226,6 +284,7 @@ public actor VideoEditorSource {
         for directory in directories { staging.remove(directory) }
         directories.removeAll()
         proxies.removeAll()
+        musicProxy = nil
         frameTimes = nil
     }
 }

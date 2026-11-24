@@ -231,28 +231,23 @@ public actor AudioPreviewSource {
         self.staging = staging
     }
 
+    public nonisolated var url: URL { input.url }
+    public nonisolated var backgroundMusic: BackgroundMusic {
+        BackgroundMusic(url: input.url, stamp: stamp, duration: duration)
+    }
+
     public func playbackURL() async throws -> URL {
         guard !closed else { throw CancellationError() }
         try stamp.validate(input.url)
-        if input.container != .ogg, input.container != .flac,
-            try await AVURLAsset(url: input.url).load(.isPlayable)
-        {
-            return input.url
-        }
+        if try await Self.canPlayDirectly(input) { return input.url }
         if let directory { return directory.appending(path: "preview.wav") }
         let folder = try staging.makeDirectory(for: input.url)
         let output = folder.appending(path: "preview.wav")
         do {
-            let encoder = try AudioFileEncoder(
-                url: output, target: AudioTarget(format: .wav, kilobits: 0), sampleRate: sampleRate,
-                channels: input.channels, bitDepth: 32, isFloat: true)
-            let source = try input.open()
-            while let samples = try source.read() {
-                try Task.checkCancellation()
-                guard !closed else { throw CancellationError() }
-                try await encoder.write(samples)
+            try await Self.writePreviewWAV(for: input, to: output) { [weak self] in
+                guard let self else { return true }
+                return await self.closed
             }
-            try await encoder.finish()
             try stamp.validate(input.url)
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
@@ -262,6 +257,28 @@ public actor AudioPreviewSource {
             staging.remove(folder)
             throw error
         }
+    }
+
+    static func canPlayDirectly(_ input: AudioInput) async throws -> Bool {
+        guard input.container != .ogg, input.container != .flac else { return false }
+        let asset = AVURLAsset(url: input.url)
+        guard try await asset.load(.isPlayable) else { return false }
+        return try await asset.loadTracks(withMediaType: .audio).first != nil
+    }
+
+    static func writePreviewWAV(
+        for input: AudioInput, to output: URL, isCancelled: () async -> Bool = { false }
+    ) async throws {
+        let encoder = try AudioFileEncoder(
+            url: output, target: AudioTarget(format: .wav, kilobits: 0), sampleRate: input.sampleRate,
+            channels: input.channels, bitDepth: 32, isFloat: true)
+        let source = try input.open()
+        while let samples = try source.read() {
+            try Task.checkCancellation()
+            if await isCancelled() { throw CancellationError() }
+            try await encoder.write(samples)
+        }
+        try await encoder.finish()
     }
 
     public func close() {

@@ -88,6 +88,7 @@ public struct VideoTimeline: Hashable, Sendable {
 
     public let segments: [VideoSegment]
     public let overlays: [TimedOverlay]
+    public let music: BackgroundMusic?
     public let duration: Double
     private let starts: [Double]
     private let sourceDurations: [Double]
@@ -159,8 +160,10 @@ public struct VideoTimeline: Hashable, Sendable {
             else { throw EngineError.invalidInput(.invalidNumericParameter) }
             try timed.overlay.validate()
         }
+        try edit.music?.validate()
         self.segments = segments
         self.overlays = edit.overlays
+        self.music = edit.music
         self.duration = duration
         self.starts = starts
         sourceDurations = durations
