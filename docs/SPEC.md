@@ -1919,20 +1919,38 @@ reads the central directory and bounded link payloads, never file bodies; TAR
 reads every header, inflating gzip as it goes. Inspection is limited to
 100,000 entries, 32 MiB of name, extra-field and comment bytes, path depth 256,
 link payloads of 64 KiB, the extraction expansion limit and 10 seconds, with
-cancellation; exceeding a limit refuses with "MacEase couldn’t verify this
-archive’s file-name encoding within the inspection limits. The original was
-not changed." When the archive-wide choice above selects CP932, the native
+cancellation; exceeding a limit refuses with "Couldn’t inspect “…”: it reached
+…. Use another archive app or create a smaller archive. The original was not
+changed.", naming the limit. A compressed TAR is the exception, because its
+names can only be read by inflating it: when the limit is reached and every
+name seen so far was UTF-8, extraction proceeds on the helper route as before
+(names after the limit are not checked first); when a CP932 name was already
+seen with Japanese preferred, it proceeds on the native route, where a later
+undecodable name fails the extraction with staging removed and the archive
+kept. The inspection itself writes nothing to disk. When the archive-wide
+choice above selects CP932, the native
 extractor runs instead of the helper: staged extraction, the collision-safe
 Derived commit, quarantine, verification and history, keeping the archive in
-both save modes with Undo removing only the output. Regular encrypted ZIPs
+both save modes with Undo removing only the output. Every native extraction,
+on this route and for RAR and explicit native extraction alike, refuses an
+archive in which two entries would become the same file on the destination
+volume: identical decoded names, names that differ only by case on a
+case-insensitive volume, or names that differ only by Unicode normalisation.
+Each path is checked against what the extraction already wrote in its
+staging directory (by path and by file identity); a collision fails the
+extraction with "Couldn’t extract “…”: entries “…” and “…” have the same name
+on this disk. …", staging is removed and nothing reaches the destination.
+libarchive's own no-overwrite option is not relied on, because it skips the
+second entry and reports success. Regular encrypted ZIPs
 (ZipCrypto, WinZip AES-128, -192 and -256) use the typed password, ZIP64 has
 no separate size cutoff, and the expansion limit of section 8.5 applies.
 Activity shows Stop, which cancels and removes staging, rather than Pause.
 Split volumes, unsupported ZIP compression methods (including Deflate64),
 strong encryption, backslash separators, encrypted ZIP links and link
 compression other than stored, deflate or LZMA refuse before any change with
-"This archive uses legacy file-name encoding and an unsupported extraction
-feature: …. The original was not changed." All other archives, including
+"Couldn’t extract “…”: CP932 file names cannot be combined with …. Re-create
+it as a single ZIP with UTF-8 file names and Deflate compression, or use
+another archive app. The original was not changed." All other archives, including
 CP437 ZIPs, keep the helper route and its in-place behaviour. TAR whose names
 are neither UTF-8 nor accepted CP932 refuses before any change. Before
 starting the helper, a new session saves a private versioned proof of the
@@ -4093,7 +4111,8 @@ Staging is removed on completion, cancellation and the next launch.
   strict CP932 when Japanese is a preferred language, otherwise CP437 for ZIP
   and a refusal for TAR. Route new CP932 Finder extractions through the native
   staged extractor, which keeps the archive; paused HatchZip sessions resume
-  on the route they started with (ADR 0083).
+  on the route they started with. Native extraction refuses entries that
+  would become the same file on the destination volume (ADR 0083).
 
 - 2026-11-25: List ZIP, TAR, compressed TAR and single compressed files in
   Finder Preview in process, with fixed entry, name, decoded-byte and time

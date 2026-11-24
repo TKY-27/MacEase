@@ -215,6 +215,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such archives are now extracted with correct names. TAR archives with names
   that are neither UTF-8 nor valid CP932 are refused before anything changes.
 
+- Extracting an archive with MacEase's own extractor could silently keep only
+  one of two entries whose names become the same file on the disk (names that
+  differ only by case or by Unicode normalisation). Such archives are now
+  refused with a message naming both entries, and the archive is kept.
+
 - Compressing or converting a MOV with a timecode track, as most cameras and
   editing apps write, stopped with a refusal; timing-preserving MOV outputs now
   keep the timecode, and other cases ask first.

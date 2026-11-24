@@ -47,7 +47,13 @@ path that preserves the original. Without Japanese preferred, CP932 ZIPs
 behave as before (CP437, helper, consumed archive), and with it a Western
 CP437 name that is also valid CP932 shows Japanese characters: the preference
 selects a rule, it does not prove the archive's origin. Non-UTF-8 TAR names
-outside that rule are refused before anything changes. Inspection adds about
+outside that rule are refused before anything changes. Because the native
+route now receives archives the helper used to take, it refuses any archive
+whose entries would collide on the destination volume (same decoded name,
+case on a case-insensitive volume, Unicode normalisation) instead of letting
+a later entry overwrite an earlier one; the check runs as entries are
+written in staging and also covers RAR and explicit native extraction, which
+had the same silent overwrite before. Inspection adds about
 0.1 seconds for 100,000 ZIP entries in a warm Debug build; a gzip TAR is read
 linearly. Old paused sessions keep their old naming so their remaining
 content stays reachable. Other legacy encodings (GBK, Big5, EUC-KR,
