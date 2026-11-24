@@ -49,16 +49,20 @@ public struct AudioInput: Sendable {
     /// `nil` when the container does not say.
     public let frameCount: Int64?
     let multiplexedOggStreams: Set<SkippedMediaStream>
-    let isFallback: Bool
-    let sourceIsLossy: Bool
-
-    public init(url: URL, allowsMultiplexedOgg: Bool = false) throws {
-        try self.init(url: url, allowsMultiplexedOgg: allowsMultiplexedOgg, isFallback: false, sourceIsLossy: nil)
+    let fallbackOrigin: FallbackSourceDescription?
+    var isFallback: Bool { fallbackOrigin != nil }
+    var sourceIsLossy: Bool {
+        if let fallbackOrigin { return !fallbackOrigin.isLosslessAudio }
+        return codec.isLossy
     }
 
-    init(url: URL, allowsMultiplexedOgg: Bool, isFallback: Bool, sourceIsLossy: Bool?) throws {
+    public init(url: URL, allowsMultiplexedOgg: Bool = false) throws {
+        try self.init(url: url, allowsMultiplexedOgg: allowsMultiplexedOgg, fallbackOrigin: nil)
+    }
+
+    init(url: URL, allowsMultiplexedOgg: Bool, fallbackOrigin: FallbackSourceDescription?) throws {
         self.url = url
-        self.isFallback = isFallback
+        self.fallbackOrigin = fallbackOrigin
         do {
             container = try Self.sniff(url)
             if container == .ogg {
@@ -84,15 +88,21 @@ public struct AudioInput: Sendable {
                 sampleRate = description.mSampleRate
                 channels = Int(description.mChannelsPerFrame)
                 channelLayoutTag = file.fileFormat.channelLayout?.layout.pointee.mChannelLayoutTag
-                isFloat = codec == .pcm && description.mFormatFlags & kAudioFormatFlagIsFloat != 0
-                bitDepth = Self.bitDepth(codec: codec, description: description)
+                let nativeFloat = codec == .pcm && description.mFormatFlags & kAudioFormatFlagIsFloat != 0
+                let nativeBitDepth = Self.bitDepth(codec: codec, description: description)
+                if let fallbackOrigin {
+                    isFloat = fallbackOrigin.isFloat
+                    bitDepth = fallbackOrigin.isLosslessAudio ? (fallbackOrigin.bitDepth ?? nativeBitDepth) : nil
+                } else {
+                    isFloat = nativeFloat
+                    bitDepth = nativeBitDepth
+                }
                 frameCount = file.length
                 multiplexedOggStreams = []
             }
         } catch {
             throw EngineError.fromAudio(error)
         }
-        self.sourceIsLossy = sourceIsLossy ?? codec.isLossy
         try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
     }
 
@@ -118,16 +128,14 @@ public struct AudioInput: Sendable {
                 originalURL, context: context, enforceStreamConsent: enforceStreamConsent)
         } catch {
             let wrapped = EngineError.wrapping(error, path: originalURL.path)
-            if case .unsupportedCodec = nativeError {
-                switch wrapped {
-                case .decodeFailed, .unsupportedCodec: throw nativeError
-                default: break
-                }
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                throw nativeError
+            default:
+                throw wrapped
             }
-            throw wrapped
         }
-        return try AudioInput(
-            url: staged.stagedURL, allowsMultiplexedOgg: false, isFallback: true, sourceIsLossy: staged.sourceIsLossy)
+        return try AudioInput(url: staged.stagedURL, allowsMultiplexedOgg: false, fallbackOrigin: staged.origin)
     }
 
     /// A fresh decoder positioned at the start.
@@ -143,12 +151,22 @@ public struct AudioInput: Sendable {
 
     public func tags() async throws -> AudioTags {
         do {
+            var loaded: AudioTags
             switch container {
             case .ogg:
-                return try OggAudioReader(url: url, allowsMultiplexedStreams: !multiplexedOggStreams.isEmpty).tags
-            case .flac: return try FLACMetadata.tags(in: url)
-            default: return try await Self.commonTags(url)
+                loaded = try OggAudioReader(url: url, allowsMultiplexedStreams: !multiplexedOggStreams.isEmpty).tags
+            case .flac:
+                loaded = try FLACMetadata.tags(in: url)
+            default:
+                loaded = try await Self.commonTags(url)
             }
+            if let fallbackTags = fallbackOrigin?.fallbackAudioTags {
+                if loaded.title == nil { loaded.title = fallbackTags.title }
+                if loaded.artist == nil { loaded.artist = fallbackTags.artist }
+                if loaded.album == nil { loaded.album = fallbackTags.album }
+                if loaded.artwork == nil { loaded.artwork = fallbackTags.artwork }
+            }
+            return loaded
         } catch {
             throw EngineError.fromAudio(error)
         }

@@ -84,7 +84,16 @@ enum VideoProperties {
         let metadata = try await VideoMetadata.load(from: input)
         var losses = metadata.losses(for: prepared.container, includingAudio: prepared.audio != nil)
         let losesDisplay = try await losesDisplayGeometry(plan, input: input)
-        if losesDisplay, !losses.contains(.trackMetadata) {
+        let losesOddDimensions: Bool
+        if case .encode(let encoding, let edit) = plan.video, edit.size == nil, edit.editorGeometry == nil,
+            input.displaySize != input.displaySize.evened(), !edit.preservesOddDimensions,
+            encoding.width != input.displaySize.width || encoding.height != input.displaySize.height
+        {
+            losesOddDimensions = true
+        } else {
+            losesOddDimensions = false
+        }
+        if (losesDisplay || losesOddDimensions), !losses.contains(.trackMetadata) {
             losses.append(.trackMetadata)
         }
         if case .copy = plan.video,

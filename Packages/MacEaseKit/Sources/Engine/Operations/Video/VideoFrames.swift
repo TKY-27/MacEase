@@ -32,9 +32,11 @@ enum VideoStills {
         let (frameSpan, spanOverflow) = input.frameDuration.multipliedReportingOverflow(by: sampledFrames)
         let (end, endOverflow) = time.addingReportingOverflow(frameSpan)
         guard !spanOverflow, !endOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        var stillEdit = FrameEdit(displayOrientation: try input.displayOrientation)
+        stillEdit.preservesOddDimensions = true
         let sampler = try await FrameSampler(
             input: input, frameDuration: input.frameDuration,
-            edit: FrameEdit(displayOrientation: try input.displayOrientation),
+            edit: stillEdit,
             start: time, end: end, toneMapToSDR: toneMapToSDR)
         guard let frame = try await sampler.next() else { throw EngineError.decodeFailed("no frame at that time") }
         let format = context.settings.video.thumbnailFormat

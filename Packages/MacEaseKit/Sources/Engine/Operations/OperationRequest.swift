@@ -187,8 +187,7 @@ public enum OperationPlanner {
             let wrapped = EngineError.wrapping(error, path: source.path)
             switch wrapped {
             case .decodeFailed, .unsupportedCodec:
-                let directory = try context.stagingDirectory(for: source)
-                let probe = try await StagedMediaFallback.probe(source, workingDirectory: directory)
+                let probe = try await StagedMediaFallback.probe(source)
                 guard let audio = probe.audioStreams.first, let channels = audio.channels else {
                     throw EngineError.invalidInput(.unsupportedFileType)
                 }

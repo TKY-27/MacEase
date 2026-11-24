@@ -60,10 +60,71 @@ struct VideoMetadata {
             mapped.value = try await entry.load(.value)
             mpeg4Metadata.append(mapped)
         }
+        var containerMetadata: Set<VideoMetadataProperty> = []
+        if let origin = input.fallbackOrigin {
+            let creationDate = try await asset.load(.creationDate)
+            containerMetadata = try await droppedFallbackMetadata(
+                origin: origin, assetMetadata: metadata, hasCreationDate: creationDate != nil,
+                video: video, audio: audio)
+        }
         return VideoMetadata(
-            assetMetadata: metadata, mpeg4Metadata: mpeg4Metadata, containerMetadata: [],
+            assetMetadata: metadata, mpeg4Metadata: mpeg4Metadata, containerMetadata: containerMetadata,
             sourceContainer: input.originalContainer,
             video: video, audio: audio, groups: groups)
+    }
+
+    private static func droppedFallbackMetadata(
+        origin: FallbackSourceDescription, assetMetadata: [AVMetadataItem], hasCreationDate: Bool,
+        video: TrackAttributes?, audio: TrackAttributes?
+    ) async throws -> Set<VideoMetadataProperty> {
+        var dropped: Set<VideoMetadataProperty> = []
+        var formatTags = origin.formatTags
+        for (key, _) in origin.formatTags where key.caseInsensitiveCompare("creation_time") == .orderedSame {
+            if hasCreationDate { formatTags.removeValue(forKey: key) }
+        }
+        if try await hasUnmatchedTags(formatTags, in: assetMetadata) {
+            dropped.insert(.descriptiveMetadata)
+        }
+        for (tags, track) in [(origin.videoTags, video), (origin.audioTags, audio)] {
+            var nonLanguage: [String: String] = [:]
+            for (key, value) in tags {
+                if key.caseInsensitiveCompare("language") == .orderedSame {
+                    let lowered = value.lowercased()
+                    if lowered != "und",
+                        track?.languageCode?.lowercased() != lowered,
+                        track?.extendedLanguageTag?.lowercased() != lowered
+                    {
+                        dropped.insert(.language)
+                    }
+                } else {
+                    nonLanguage[key] = value
+                }
+            }
+            if try await hasUnmatchedTags(nonLanguage, in: track?.metadata ?? []) {
+                dropped.insert(.trackMetadata)
+            }
+        }
+        return dropped
+    }
+
+    private static func hasUnmatchedTags(_ expected: [String: String], in preserved: [AVMetadataItem]) async throws
+        -> Bool
+    {
+        guard !expected.isEmpty else { return false }
+        var remainingValues: [String] = []
+        for entry in preserved {
+            if let text = try await entry.load(.stringValue), !text.isEmpty {
+                remainingValues.append(text)
+            }
+        }
+        for value in expected.values where !value.isEmpty {
+            if let index = remainingValues.firstIndex(of: value) {
+                remainingValues.remove(at: index)
+            } else {
+                return true
+            }
+        }
+        return false
     }
 
     func losses(

@@ -21701,6 +21701,16 @@
           }
         }
       }
+    },
+    "Saved as a new file: MacEase cannot write the original format.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の形式では書き出せないため、新しいファイルとして保存しました。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -13,7 +13,7 @@ struct MediaInput {
 
     let url: URL
     let backend: Backend
-    let video: MediaTrack?
+    var video: MediaTrack?
     let audio: MediaTrack?
     let hasMultipleTracks: Bool
     let skippedStreams: Set<SkippedMediaStream>
@@ -21,7 +21,8 @@ struct MediaInput {
     var hasContainerDescriptiveMetadata = false
     var hasContainerTrackMetadata = false
     var disabledTrackNumbers: Set<Int> = []
-    var isFallback = false
+    var fallbackOrigin: FallbackSourceDescription?
+    var isFallback: Bool { fallbackOrigin != nil }
     /// MP4 and MOV store rotation separately.
     let transform: CGAffineTransform
 
@@ -62,18 +63,27 @@ struct MediaInput {
                 consentedStreams: consentedStreams)
         } catch {
             let wrapped = EngineError.wrapping(error, path: originalURL.path)
-            if case .unsupportedCodec = nativeError {
-                switch wrapped {
-                case .decodeFailed, .unsupportedCodec: throw nativeError
-                default: break
-                }
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                throw nativeError
+            default:
+                throw wrapped
             }
-            throw wrapped
         }
         var fallback = try await open(staged.stagedURL)
-        fallback.isFallback = true
+        if let expectedSize = staged.origin.codedSize, fallback.codedSize != expectedSize {
+            throw EngineError.decodeFailed("staged dimensions differ from source")
+        }
+        fallback.fallbackOrigin = staged.origin
+        if var video = fallback.video {
+            video.hasAlpha = staged.origin.hasAlpha
+            fallback.video = video
+        }
         return fallback
     }
+
+    private static let decodabilityProbePacketLimit = 32
+    private static let audioProbePacketLimit = 8
 
     // Catches partial-open traps before transcoding starts.
     func verifyDecodable() async throws {
@@ -83,9 +93,7 @@ struct MediaInput {
                 let reader = try AssetTrackReader(asset: asset, track: videoTrack, number: video.number, mode: .frames)
                 _ = try await reader.nextSample()
             default:
-                guard Self.supportsNativeVideoCodec(video.codec) else {
-                    throw EngineError.unsupportedCodec(video.codec.displayName)
-                }
+                try verifyContainerVideoDecodable(video)
             }
         }
         if let audio {
@@ -94,25 +102,55 @@ struct MediaInput {
                 let reader = try AssetTrackReader(asset: asset, track: audioTrack, number: audio.number, mode: .pcm)
                 _ = try await reader.nextSample()
             default:
-                guard Self.supportsNativeAudioCodec(audio.codec) else {
-                    throw EngineError.unsupportedCodec(audio.codec.displayName)
-                }
+                try verifyContainerAudioDecodable(audio)
             }
         }
     }
 
-    private static func supportsNativeVideoCodec(_ codec: MediaCodec) -> Bool {
-        switch codec {
-        case .vp8, .vp9, .av1, .mjpeg, .h264, .hevc, .mpeg4Part2: true
-        default: false
+    private func verifyContainerVideoDecodable(_ video: MediaTrack) throws {
+        var decoder: any VideoFrameDecoder
+        do {
+            decoder = try VideoDecoders.make(for: video)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: url.path)
+            if case .unsupportedCodec = wrapped { throw wrapped }
+            return
+        }
+        guard var packetDemuxer = try demuxer else { return }
+        var fed = 0
+        do {
+            while fed < Self.decodabilityProbePacketLimit, let packet = try packetDemuxer.nextPacket() {
+                guard packet.track == video.number else { continue }
+                fed += 1
+                if !(try decoder.decode(packet)).isEmpty { return }
+            }
+            if fed > 0 { _ = try decoder.finish() }
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: url.path)
+            if case .unsupportedCodec = wrapped { throw wrapped }
         }
     }
 
-    private static func supportsNativeAudioCodec(_ codec: MediaCodec) -> Bool {
-        switch codec {
-        case .opus, .vorbis, .aac, .mp3, .ac3, .flac: true
-        case .pcm(let bits, _, _): [8, 16, 24, 32].contains(bits)
-        default: false
+    private func verifyContainerAudioDecodable(_ audio: MediaTrack) throws {
+        let decoder: AudioPacketDecoder
+        do {
+            decoder = try AudioPacketDecoder(track: audio)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: url.path)
+            if case .unsupportedCodec = wrapped { throw wrapped }
+            return
+        }
+        guard var packetDemuxer = try demuxer else { return }
+        var fed = 0
+        do {
+            while fed < Self.audioProbePacketLimit, let packet = try packetDemuxer.nextPacket() {
+                guard packet.track == audio.number else { continue }
+                fed += 1
+                if !(try decoder.decode(packet)).isEmpty { return }
+            }
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: url.path)
+            if case .unsupportedCodec = wrapped { throw wrapped }
         }
     }
 

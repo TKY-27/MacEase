@@ -29,6 +29,14 @@ enum VideoEdits {
         } catch let skip as SkipError {
             return .skipped(skip.reason)
         }
+        let keepsOriginalAsNewFile: Bool
+        if input.isFallback, case .convert = operation {
+            keepsOriginalAsNewFile = false
+        } else {
+            keepsOriginalAsNewFile = input.isFallback
+        }
+        let editedDerived = plan.derived
+        if keepsOriginalAsNewFile { plan.derived = true }
         let carryPlan = try await NativeTimecodePlan.make(
             for: input, destination: plan.container, preservesTiming: preservesTiming(operation: operation),
             omitting: context.omittedStreams)
@@ -47,12 +55,18 @@ enum VideoEdits {
             try edit.music?.validateSource()
         }
         if plan.derived {
-            let name = url.deletingPathExtension().lastPathComponent + "_edited." + plan.container.fileExtension
+            if keepsOriginalAsNewFile, context.settings.outputMode == .replace {
+                context.warn(.keptAsNewFileForFormat)
+            }
+            let outputName =
+                editedDerived || !keepsOriginalAsNewFile
+                ? url.deletingPathExtension().lastPathComponent + "_edited." + plan.container.fileExtension
+                : name
             return .derived(
                 nextTo: url,
                 outputs: [
                     StagedFile(
-                        url: output, name: name,
+                        url: output, name: outputName,
                         check: plan.toneMapToSDR ? .sdrVideo : .media)
                 ])
         }
@@ -220,7 +234,9 @@ enum VideoEdits {
         _ input: MediaInput, source: MediaTrack, edit: FrameEdit, settings: VideoSettings,
         audioSettings: AudioSettings = AudioSettings()
     ) throws -> TranscodePlan {
+        var edit = edit
         var encoding = try alphaEncoding(input, source: source, settings: settings)
+        applyOddDimensionPolicy(for: input.container, input: input, encoding: &encoding, edit: &edit)
         let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit, display: source.displayGeometry)
         encoding.width = size.width
         encoding.height = size.height
@@ -228,6 +244,23 @@ enum VideoEdits {
             input.audio == nil
             ? nil : (input.isFallback ? encodedAudio(for: input.container, settings: audioSettings) : .copy)
         return TranscodePlan(container: input.container, video: .encode(encoding, edit), audio: audio)
+    }
+
+    private static func applyOddDimensionPolicy(
+        for container: OutputContainer, input: MediaInput, encoding: inout VideoEncoding, edit: inout FrameEdit
+    ) {
+        guard edit.size == nil, edit.editorGeometry == nil, input.displaySize != input.displaySize.evened() else {
+            return
+        }
+        switch container {
+        case .mov:
+            encoding.codec = .prores4444
+            edit.preservesOddDimensions = true
+        case .webm, .avi:
+            edit.preservesOddDimensions = true
+        case .mp4, .m4v, .mkv, .flv:
+            break
+        }
     }
 
     private static func encodedAudio(for container: OutputContainer, settings: AudioSettings) -> TranscodePlan.Audio {
@@ -313,7 +346,12 @@ enum VideoEdits {
             let sourceCodec = input.isFallback ? MediaCodec.unsupported("fallback") : source.codec
             encoding.codec = target == .mkv ? .h264 : codec(for: target, source: sourceCodec, settings: settings)
         }
-        return TranscodePlan(container: target, video: .encode(encoding, try baked(input)), audio: audio)
+        var edit = try baked(input)
+        applyOddDimensionPolicy(for: target, input: input, encoding: &encoding, edit: &edit)
+        let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit, display: source.displayGeometry)
+        encoding.width = size.width
+        encoding.height = size.height
+        return TranscodePlan(container: target, video: .encode(encoding, edit), audio: audio)
     }
 
     private static func resized(_ display: PixelSize, _ resize: VideoResize) throws -> PixelSize {

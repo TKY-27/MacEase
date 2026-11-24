@@ -50,11 +50,7 @@ public enum RecipePlanner {
                 let wrapped = EngineError.wrapping(error, path: input.path)
                 switch wrapped {
                 case .decodeFailed, .unsupportedCodec:
-                    let probeDirectory = FileManager.default.temporaryDirectory.appending(
-                        path: "MacEaseProbe-\(UUID().uuidString)", directoryHint: .isDirectory)
-                    try FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
-                    defer { try? FileManager.default.removeItem(at: probeDirectory) }
-                    let probed = try await StagedMediaFallback.probe(input, workingDirectory: probeDirectory)
+                    let probed = try await StagedMediaFallback.probe(input)
                     omitted.formUnion(try StagedMediaFallback.videoUnpreservedStreams(in: probed))
                 default:
                     throw wrapped

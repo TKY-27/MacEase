@@ -151,6 +151,7 @@ public enum ItemWarning: Equatable, Sendable {
     case imageDimensionsReduced
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived
+    case keptAsNewFileForFormat
     case originalKept
     case copiedAcrossVolumes(original: URL, destination: URL)
     case outputNameUnchanged

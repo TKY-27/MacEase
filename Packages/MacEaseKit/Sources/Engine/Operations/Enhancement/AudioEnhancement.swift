@@ -43,11 +43,7 @@ public struct AudioEnhancement: Sendable {
             let wrapped = EngineError.wrapping(error, path: source.path)
             switch wrapped {
             case .decodeFailed, .unsupportedCodec:
-                let probeDirectory = FileManager.default.temporaryDirectory.appending(
-                    path: "MacEaseProbe-\(UUID().uuidString)", directoryHint: .isDirectory)
-                try FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
-                defer { try? FileManager.default.removeItem(at: probeDirectory) }
-                let probed = try await StagedMediaFallback.probe(source, workingDirectory: probeDirectory)
+                let probed = try await StagedMediaFallback.probe(source)
                 streams = try StagedMediaFallback.audioUnpreservedStreams(in: probed)
             default:
                 throw wrapped
