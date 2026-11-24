@@ -3,10 +3,37 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum PreviewKind: Sendable {
-    case text, html, markdown, json, propertyList, image, media, audio, pdf, quickLook
+enum PreviewKind: Equatable, Hashable, Sendable {
+    case text, html, markdown, json, propertyList, svg, font, image, media, audio, pdf, quickLook
 
-    static func resolve(type: UTType?, extension suffix: String) -> Self {
+    private static let fontExtensions: Set<String> = ["ttf", "otf", "ttc", "otc", "woff", "woff2"]
+
+    var fileType: FinderPreviewFileType? {
+        switch self {
+        case .text, .json, .propertyList: .text
+        case .html: .html
+        case .markdown: .markdown
+        case .svg: .svg
+        case .pdf: .pdf
+        case .font: .font
+        case .image: .image
+        case .media: .video
+        case .audio: .audio
+        case .quickLook: nil
+        }
+    }
+
+    static func resolve(
+        type: UTType?, extension suffix: String, disabled: Set<FinderPreviewFileType> = []
+    ) -> Self {
+        let resolved = resolveUnfiltered(type: type, extension: suffix)
+        if let fileType = resolved.fileType, disabled.contains(fileType) {
+            return .quickLook
+        }
+        return resolved
+    }
+
+    private static func resolveUnfiltered(type: UTType?, extension suffix: String) -> Self {
         let suffix = suffix.lowercased()
         if type?.conforms(to: .pdf) == true { return .pdf }
         if type?.conforms(to: .html) == true { return .html }
@@ -16,7 +43,8 @@ enum PreviewKind: Sendable {
             return .markdown
         }
         if ["md", "markdown"].contains(suffix) { return .markdown }
-        if type?.conforms(to: .svg) == true || suffix == "svg" { return .quickLook }
+        if type?.conforms(to: .svg) == true || suffix == "svg" { return .svg }
+        if type?.conforms(to: .font) == true || fontExtensions.contains(suffix) { return .font }
         if type?.conforms(to: .image) == true { return .image }
         if type?.conforms(to: .audio) == true { return .audio }
         if type?.conforms(to: .audiovisualContent) == true { return .media }
@@ -30,11 +58,11 @@ enum PreviewKind: Sendable {
     }
 
     // Folders and packages use the system preview.
-    static func inspect(_ url: URL) throws -> Self {
+    static func inspect(_ url: URL, disabled: Set<FinderPreviewFileType> = []) throws -> Self {
         let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .contentTypeKey])
         if values.isDirectory == true { return .quickLook }
         guard values.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
-        return resolve(type: values.contentType, extension: url.pathExtension)
+        return resolve(type: values.contentType, extension: url.pathExtension, disabled: disabled)
     }
 }
 
@@ -55,7 +83,7 @@ struct PreviewContent: View {
         case .image: PreviewImageViewer(url: url)
         case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio)
         case .pdf: PreviewPDFViewer(url: url)
-        case .quickLook:
+        case .svg, .font, .quickLook:
             VStack(spacing: 0) {
                 PreviewToolbar {}
                 QuickLookPreview(url: url)
