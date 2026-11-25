@@ -39,6 +39,15 @@ Check current main, branch heads, open PRs and review comments before resuming.
   builds/tests. AgeBridge's OS-dependent file-open change needs native Darwin
   `go test`; cross-compilation does not establish runtime behavior.
 
+## Scheduled continuation
+
+The enabled task **MacEase品質改善** was created on 2026-11-25. Its first
+scheduled run is 2026-11-25 19:00 Asia/Tokyo, then every six hours. It restores
+this checkpoint, checks existing PRs and environment gates, and continues
+implementation with the same independent-review requirements. Inspect the task's
+actual run status before reporting later progress; the schedule itself does not
+establish that a run completed. Do not create a duplicate continuation task.
+
 ## Changes
 
 | Work | Branch | State | Implementer / final independent reviewers |
