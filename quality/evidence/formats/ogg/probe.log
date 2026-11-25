@@ -1,0 +1,42 @@
+[0/1] Planning build
+Building for production...
+[0/8] Write sources
+[1/8] Write swift-version-38AE398DB5848E95.txt
+[3/9] Compiling FormatsTests OggBufferingProbe.swift
+[3/9] /workspace/scratch/92211793ca84/ogg-harness/swift/.build/x86_64-unknown-linux-gnu/release/OggAuditPackageDiscoveredTests.derived/all-discovered-tests.swift
+[4/9] Write sources
+[6/10] Compiling OggAuditPackageDiscoveredTests FormatsTests.swift
+[6/10] /workspace/scratch/92211793ca84/ogg-harness/swift/.build/x86_64-unknown-linux-gnu/release/OggAuditPackageTests.derived/runner.swift
+[7/10] Write sources
+[9/11] Compiling OggAuditPackageTests runner.swift
+[9/11] Write Objects.LinkFileList
+[10/11] Linking OggAuditPackageTests.xctest
+Build complete! (6.69s)
+Test Suite 'All tests' started at 2026-11-25 16:36:43.426
+Test Suite 'release.xctest' started at 2026-11-25 16:36:43.458
+Test Suite 'release.xctest' passed at 2026-11-25 16:36:43.458
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'All tests' passed at 2026-11-25 16:36:43.458
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2 (3fdabe5392108d8)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Suite OggBufferingProbe started.
+◇ Test completedPacketsWithGranules(packetCount:) started.
+◇ Test completedPacketsWithoutGranules(packetCount:) started.
+◇ Test case passing 1 argument packetCount → 1000 to completedPacketsWithoutGranules(packetCount:) started.
+◇ Test case passing 1 argument packetCount → 1000 to completedPacketsWithGranules(packetCount:) started.
+◇ Test case passing 1 argument packetCount → 100 to completedPacketsWithGranules(packetCount:) started.
+◇ Test case passing 1 argument packetCount → 100 to completedPacketsWithoutGranules(packetCount:) started.
+◇ Test case passing 1 argument packetCount → 10000 to completedPacketsWithGranules(packetCount:) started.
+◇ Test case passing 1 argument packetCount → 10000 to completedPacketsWithoutGranules(packetCount:) started.
+granules=true packets=100 input_bytes=525 first_read_samples=95688 first_read_bytes=382752 reported_frames=Optional(95688)
+granules=false packets=100 input_bytes=525 first_read_samples=95688 first_read_bytes=382752 reported_frames=Optional(0)
+granules=true packets=1000 input_bytes=4206 first_read_samples=244488 first_read_bytes=977952 reported_frames=Optional(959688)
+granules=true packets=10000 input_bytes=41178 first_read_samples=244488 first_read_bytes=977952 reported_frames=Optional(9599688)
+✔ Test completedPacketsWithGranules(packetCount:) with 3 test cases passed after 0.010 seconds.
+granules=false packets=1000 input_bytes=4206 first_read_samples=959688 first_read_bytes=3838752 reported_frames=Optional(0)
+granules=false packets=10000 input_bytes=41178 first_read_samples=9599688 first_read_bytes=38398752 reported_frames=Optional(0)
+✔ Test completedPacketsWithoutGranules(packetCount:) with 3 test cases passed after 0.194 seconds.
+✔ Suite OggBufferingProbe passed after 0.194 seconds.
+✔ Test run with 2 tests in 1 suite passed after 0.195 seconds.

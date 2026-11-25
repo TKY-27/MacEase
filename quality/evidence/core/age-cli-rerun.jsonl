@@ -1,0 +1,2 @@
+{"binary": "macease-age-baseline", "result": "blocked", "code": -9, "seconds": 2.003314760000194, "stdout": "", "stderr": "", "output_exists": false}
+{"binary": "macease-age-current", "result": "rejected", "code": 1, "seconds": 0.002173542000036832, "stdout": "", "stderr": "MACEASE_AGE_ERROR:io\n", "output_exists": false}

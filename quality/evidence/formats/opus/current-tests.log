@@ -1,0 +1,47 @@
+[0/1] Planning build
+Building for production...
+[0/3] Write sources
+[1/3] Write swift-version-38AE398DB5848E95.txt
+[3/4] Compiling Formats AudioMetadata.swift
+[3/5] Write Objects.LinkFileList
+[4/5] Linking OggAuditPackageTests.xctest
+Build complete! (4.23s)
+Test Suite 'Selected tests' started at 2026-11-25 16:54:49.644
+Test Suite 'Selected tests' passed at 2026-11-25 16:54:49.645
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2 (3fdabe5392108d8)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Suite OggFLACTests started.
+◇ Suite OggStreamRegression started.
+◇ Suite OpusPacketTests started.
+◇ Test decodesThirdPartyOggOpus() started.
+◇ Test oggRoundTripIsSampleAlignedAndTrimmed(codec:) started.
+◇ Test vorbisSurroundKeepsWAVChannelOrder() started.
+◇ Test vorbisCodecPrivateSplitsBackIntoHeaders() started.
+◇ Test decodesThirdPartyOggVorbis() started.
+◇ Test encodedSilenceAndLossConcealmentRemainValid(channels:) started.
+◇ Test oggRejectsUnknownCodecsByName() started.
+◇ Test rejectsChain(codec:) started.
+◇ Test emptyPayloadIsRejected(channels:) started.
+◇ Test case passing 1 argument codec → .opus to oggRoundTripIsSampleAlignedAndTrimmed(codec:) started.
+◇ Test case passing 1 argument codec → .vorbis to oggRoundTripIsSampleAlignedAndTrimmed(codec:) started.
+◇ Test case passing 1 argument channels → 2 to encodedSilenceAndLossConcealmentRemainValid(channels:) started.
+◇ Test case passing 1 argument channels → 1 to encodedSilenceAndLossConcealmentRemainValid(channels:) started.
+◇ Test case passing 1 argument codec → .vorbis to rejectsChain(codec:) started.
+◇ Test case passing 1 argument channels → 1 to emptyPayloadIsRejected(channels:) started.
+◇ Test case passing 1 argument codec → .opus to rejectsChain(codec:) started.
+◇ Test case passing 1 argument channels → 2 to emptyPayloadIsRejected(channels:) started.
+✔ Test encodedSilenceAndLossConcealmentRemainValid(channels:) with 2 test cases passed after 0.001 seconds.
+✔ Test oggRejectsUnknownCodecsByName() passed after 0.002 seconds.
+✔ Test emptyPayloadIsRejected(channels:) with 2 test cases passed after 0.002 seconds.
+✔ Suite OpusPacketTests passed after 0.002 seconds.
+✔ Test vorbisCodecPrivateSplitsBackIntoHeaders() passed after 0.003 seconds.
+✔ Test rejectsChain(codec:) with 2 test cases passed after 0.004 seconds.
+✔ Suite OggStreamRegression passed after 0.004 seconds.
+✔ Test decodesThirdPartyOggVorbis() passed after 0.006 seconds.
+✔ Test decodesThirdPartyOggOpus() passed after 0.007 seconds.
+✔ Test oggRoundTripIsSampleAlignedAndTrimmed(codec:) with 2 test cases passed after 0.014 seconds.
+✔ Test vorbisSurroundKeepsWAVChannelOrder() passed after 0.022 seconds.
+✔ Suite OggFLACTests passed after 0.023 seconds.
+✔ Test run with 9 tests in 3 suites passed after 0.023 seconds.

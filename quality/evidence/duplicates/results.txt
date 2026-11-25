@@ -1,0 +1,4 @@
+files=1000 baseline_seconds=0.019231098 candidate_seconds=0.006822159 speedup=2.8189167095050114
+files=4000 baseline_seconds=0.215915585 candidate_seconds=0.026157121 speedup=8.254562304467683
+files=16000 baseline_seconds=3.29537563 candidate_seconds=0.117329261 speedup=28.086562566860454
+Behavior: identical, mixed-content, reversed input, empty and singleton groups passed

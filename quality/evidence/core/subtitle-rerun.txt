@@ -1,0 +1,5 @@
+Behavior fixtures: 12 passed for baseline and current
+header_lines=2000 bytes=4046 baseline_median_s=0.00118426 current_median_s=0.000884858 speedup=1.338361635426249
+header_lines=8000 bytes=16046 baseline_median_s=0.009267056 current_median_s=0.002999493 speedup=3.0895407990617074
+header_lines=32000 bytes=64046 baseline_median_s=0.113695342 current_median_s=0.011417294 speedup=9.958168897113449
+header_lines=100000 bytes=200046 baseline_median_s=1.131431304 current_median_s=0.038030165 speedup=29.75089127275677

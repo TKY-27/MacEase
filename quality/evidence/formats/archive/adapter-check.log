@@ -1,0 +1,45 @@
+Building for production...
+[0/9] Write sources
+[2/9] Write swift-version-38AE398DB5848E95.txt
+[4/10] Compiling Formats ArchiveFormat.swift
+[5/11] Compiling FormatsTests ArchiveWriterTests.swift
+[5/11] /workspace/scratch/92211793ca84/quality-adapter-check/archive/.build/x86_64-unknown-linux-gnu/release/ArchiveHarnessPackageDiscoveredTests.derived/all-discovered-tests.swift
+[6/11] Write sources
+[8/12] Compiling ArchiveHarnessPackageDiscoveredTests FormatsTests.swift
+[8/12] /workspace/scratch/92211793ca84/quality-adapter-check/archive/.build/x86_64-unknown-linux-gnu/release/ArchiveHarnessPackageTests.derived/runner.swift
+[9/12] Write sources
+[11/13] Compiling ArchiveHarnessPackageTests runner.swift
+[11/13] Write Objects.LinkFileList
+[12/13] Linking ArchiveHarnessPackageTests.xctest
+Build complete! (15.14s)
+Test Suite 'Selected tests' started at 2026-11-25 16:46:56.469
+Test Suite 'Selected tests' passed at 2026-11-25 16:46:56.471
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2 (3fdabe5392108d8)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Suite ArchiveWriterTests started.
+◇ Test unreadFileReplacedBySymlinkIsRejected() started.
+◇ Test unreadFileReplacedWithSameSizeIsRejected() started.
+◇ Test unchangedFilesAndLinksRoundTrip(format:) started.
+◇ Test unreadFileReplacedByFIFOIsRejected() started.
+◇ Test growingFileIsRejected() started.
+◇ Test sameSizeEditWithRestoredModificationTimeIsRejected() started.
+◇ Test shrinkingFileIsRejected(format:) started.
+◇ Test case passing 1 argument format → .zip to unchangedFilesAndLinksRoundTrip(format:) started.
+◇ Test case passing 1 argument format → .sevenZip to unchangedFilesAndLinksRoundTrip(format:) started.
+◇ Test case passing 1 argument format → .tarGzip to unchangedFilesAndLinksRoundTrip(format:) started.
+◇ Test case passing 1 argument format → .zip to shrinkingFileIsRejected(format:) started.
+◇ Test case passing 1 argument format → .tar to unchangedFilesAndLinksRoundTrip(format:) started.
+◇ Test case passing 1 argument format → .sevenZip to shrinkingFileIsRejected(format:) started.
+◇ Test case passing 1 argument format → .tar to shrinkingFileIsRejected(format:) started.
+◇ Test case passing 1 argument format → .tarGzip to shrinkingFileIsRejected(format:) started.
+✔ Test unreadFileReplacedByFIFOIsRejected() passed after 0.027 seconds.
+✔ Test unreadFileReplacedWithSameSizeIsRejected() passed after 0.027 seconds.
+✔ Test unreadFileReplacedBySymlinkIsRejected() passed after 0.027 seconds.
+✔ Test growingFileIsRejected() passed after 0.028 seconds.
+✔ Test sameSizeEditWithRestoredModificationTimeIsRejected() passed after 0.029 seconds.
+✔ Test shrinkingFileIsRejected(format:) with 4 test cases passed after 0.036 seconds.
+✔ Test unchangedFilesAndLinksRoundTrip(format:) with 4 test cases passed after 0.069 seconds.
+✔ Suite ArchiveWriterTests passed after 0.070 seconds.
+✔ Test run with 7 tests in 1 suite passed after 0.070 seconds.

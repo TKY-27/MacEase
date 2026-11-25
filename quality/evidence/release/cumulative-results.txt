@@ -1,0 +1,19 @@
+{"case": "success", "exit": 0, "gh_invoked": true, "result": "passed"}
+{"case": "gh-failure", "exit": 47, "gh_invoked": true, "result": "passed"}
+{"case": "missing:MacEase-3.1.0.dmg", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "missing:MacEase-3.1.0.dmg.sha256", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "missing:MacEase-3.1.0-media-tools-sources.tar.xz", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "missing:MacEase-3.1.0-media-tools-sources.tar.xz.sha256", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "empty:MacEase-3.1.0.dmg", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "empty:MacEase-3.1.0.dmg.sha256", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "empty:MacEase-3.1.0-media-tools-sources.tar.xz", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "empty:MacEase-3.1.0-media-tools-sources.tar.xz.sha256", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "corrupt:MacEase-3.1.0.dmg", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "corrupt:MacEase-3.1.0-media-tools-sources.tar.xz", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "wrong-manifest:MacEase-3.1.0.dmg", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "wrong-manifest:MacEase-3.1.0-media-tools-sources.tar.xz", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "garbage-manifest:MacEase-3.1.0.dmg", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "garbage-manifest:MacEase-3.1.0-media-tools-sources.tar.xz", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "malformed-manifest:MacEase-3.1.0.dmg", "exit": 1, "gh_invoked": false, "result": "passed"}
+{"case": "malformed-manifest:MacEase-3.1.0-media-tools-sources.tar.xz", "exit": 1, "gh_invoked": false, "result": "passed"}
+Passed 18 publication fixtures; no GitHub Release was created.

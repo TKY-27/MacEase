@@ -1,0 +1,25 @@
+[0/1] Planning build
+Building for production...
+[0/7] Write sources
+[2/7] Write swift-version-38AE398DB5848E95.txt
+[4/8] Compiling Formats ArchiveFormat.swift
+[5/9] Compiling FormatsTests ArchiveWriterTests.swift
+[5/9] /workspace/scratch/92211793ca84/archive-harness/swift/.build/x86_64-unknown-linux-gnu/release/ArchiveHarnessPackageDiscoveredTests.derived/all-discovered-tests.swift
+[6/10] Write sources
+[8/11] Compiling ArchiveHarnessPackageDiscoveredTests FormatsTests.swift
+[9/11] Compiling ArchiveHarnessPackageTests runner.swift
+[9/11] Write Objects.LinkFileList
+[10/11] Linking ArchiveHarnessPackageTests.xctest
+Build complete! (5.49s)
+Test Suite 'Selected tests' started at 2026-11-25 16:28:51.749
+Test Suite 'Selected tests' passed at 2026-11-25 16:28:51.753
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2 (3fdabe5392108d8)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Suite FileDescriptorTests started.
+◇ Test failedArchivesReleaseDescriptors() started.
+Archive FD probe: before=7, after=7, failures=64
+✔ Test failedArchivesReleaseDescriptors() passed after 0.052 seconds.
+✔ Suite FileDescriptorTests passed after 0.052 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.052 seconds.

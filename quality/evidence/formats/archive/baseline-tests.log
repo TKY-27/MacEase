@@ -1,0 +1,41 @@
+[0/1] Planning build
+Building for production...
+[0/4] Write sources
+[1/4] Write swift-version-38AE398DB5848E95.txt
+[3/5] Compiling Formats ArchiveFormat.swift
+[4/6] Compiling FormatsTests ArchiveWriterTests.swift
+[4/6] /workspace/scratch/92211793ca84/archive-harness/swift/.build/x86_64-unknown-linux-gnu/release/ArchiveHarnessPackageDiscoveredTests.derived/all-discovered-tests.swift
+[5/7] Write sources
+[7/8] Compiling ArchiveHarnessPackageDiscoveredTests FormatsTests.swift
+[7/9] Write Objects.LinkFileList
+[8/9] Linking ArchiveHarnessPackageTests.xctest
+Build complete! (3.92s)
+Test Suite 'Selected tests' started at 2026-11-25 16:26:57.616
+Test Suite 'Selected tests' passed at 2026-11-25 16:26:57.617
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2 (3fdabe5392108d8)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Suite ArchiveWriterTests started.
+◇ Test shrinkingFileIsRejected(format:) started.
+◇ Test sameSizeEditWithRestoredModificationTimeIsRejected() started.
+◇ Test unreadFileReplacedBySymlinkIsRejected() started.
+◇ Test unreadFileReplacedWithSameSizeIsRejected() started.
+◇ Test case passing 1 argument format → .tarGzip to shrinkingFileIsRejected(format:) started.
+◇ Test case passing 1 argument format → .zip to shrinkingFileIsRejected(format:) started.
+◇ Test case passing 1 argument format → .tar to shrinkingFileIsRejected(format:) started.
+◇ Test case passing 1 argument format → .sevenZip to shrinkingFileIsRejected(format:) started.
+✘ Test unreadFileReplacedBySymlinkIsRejected() recorded an issue at ArchiveWriterTests.swift:121:9: Expectation failed: ((failure as? POSIXError)?.code → nil) == .ELOOP
+✘ Test unreadFileReplacedWithSameSizeIsRejected() recorded an issue at ArchiveWriterTests.swift:139:9: Expectation failed: (failure as? FormatError → nil) == .io("archive source changed: second")
+✘ Test unreadFileReplacedWithSameSizeIsRejected() failed after 0.002 seconds with 1 issue.
+✘ Test unreadFileReplacedBySymlinkIsRejected() failed after 0.002 seconds with 1 issue.
+✘ Test sameSizeEditWithRestoredModificationTimeIsRejected() recorded an issue at ArchiveWriterTests.swift:108:9: Expectation failed: (failure as? FormatError → nil) == .io("archive source changed: source")
+✘ Test sameSizeEditWithRestoredModificationTimeIsRejected() failed after 0.004 seconds with 1 issue.
+✘ Test shrinkingFileIsRejected(format:) recorded an issue with 1 argument format → .zip at ArchiveWriterTests.swift:74:9: Expectation failed: (failure as? FormatError → nil) == .io("archive source changed: source")
+✘ Test shrinkingFileIsRejected(format:) recorded an issue with 1 argument format → .tar at ArchiveWriterTests.swift:74:9: Expectation failed: (failure as? FormatError → nil) == .io("archive source changed: source")
+✘ Test shrinkingFileIsRejected(format:) recorded an issue with 1 argument format → .tar at ArchiveWriterTests.swift:78:13: Expectation failed: (archiveBytes → 2098688) < (Self.sourceBytes → 2097152)
+✘ Test shrinkingFileIsRejected(format:) recorded an issue with 1 argument format → .tarGzip at ArchiveWriterTests.swift:74:9: Expectation failed: (failure as? FormatError → nil) == .io("archive source changed: source")
+✘ Test shrinkingFileIsRejected(format:) recorded an issue with 1 argument format → .sevenZip at ArchiveWriterTests.swift:74:9: Expectation failed: (failure as? FormatError → nil) == .io("archive source changed: source")
+✘ Test shrinkingFileIsRejected(format:) with 4 test cases failed after 0.035 seconds with 5 issues.
+✘ Suite ArchiveWriterTests failed after 0.035 seconds with 8 issues.
+✘ Test run with 4 tests in 1 suite failed after 0.036 seconds with 8 issues.

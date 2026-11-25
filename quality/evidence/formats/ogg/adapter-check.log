@@ -1,0 +1,58 @@
+Building for production...
+[0/11] Write sources
+[2/11] Copying Resources
+[3/11] Compiling NativeShims NativeShims.c
+[4/11] Write swift-version-38AE398DB5848E95.txt
+[6/12] Compiling Formats AudioMetadata.swift
+[7/13] Compiling FormatsTests AudioFixtures.swift
+[7/13] /workspace/scratch/92211793ca84/quality-adapter-check/ogg/.build/x86_64-unknown-linux-gnu/release/OggAuditPackageDiscoveredTests.derived/all-discovered-tests.swift
+[8/13] Write sources
+[10/14] Compiling OggAuditPackageDiscoveredTests FormatsTests.swift
+[10/14] /workspace/scratch/92211793ca84/quality-adapter-check/ogg/.build/x86_64-unknown-linux-gnu/release/OggAuditPackageTests.derived/runner.swift
+[11/14] Write sources
+[13/15] Compiling OggAuditPackageTests runner.swift
+[13/15] Write Objects.LinkFileList
+[14/15] Linking OggAuditPackageTests.xctest
+Build complete! (17.28s)
+Test Suite 'Selected tests' started at 2026-11-25 16:46:58.623
+Test Suite 'Selected tests' passed at 2026-11-25 16:46:58.624
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2 (3fdabe5392108d8)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Suite OggFLACTests started.
+◇ Suite OggPageTests started.
+◇ Suite OggStreamRegression started.
+◇ Test oggRejectsUnknownCodecsByName() started.
+◇ Test completedPageRequiresGranule(granule:) started.
+◇ Test oggRoundTripIsSampleAlignedAndTrimmed(codec:) started.
+◇ Test decodesThirdPartyOggOpus() started.
+◇ Test continuedCommentDoesNotNeedGranule(codec:) started.
+◇ Test vorbisSurroundKeepsWAVChannelOrder() started.
+◇ Test rejectsChain(codec:) started.
+◇ Test vorbisCodecPrivateSplitsBackIntoHeaders() started.
+◇ Test decodesThirdPartyOggVorbis() started.
+◇ Test packetsWithinPageDoNotNeedGranules() started.
+◇ Test case passing 1 argument codec → .vorbis to oggRoundTripIsSampleAlignedAndTrimmed(codec:) started.
+◇ Test case passing 1 argument codec → .opus to oggRoundTripIsSampleAlignedAndTrimmed(codec:) started.
+◇ Test case passing 1 argument codec → .vorbis to continuedCommentDoesNotNeedGranule(codec:) started.
+◇ Test case passing 1 argument granule → -1 to completedPageRequiresGranule(granule:) started.
+◇ Test case passing 1 argument codec → .opus to continuedCommentDoesNotNeedGranule(codec:) started.
+◇ Test case passing 1 argument granule → -9223372036854775808 to completedPageRequiresGranule(granule:) started.
+◇ Test case passing 1 argument granule → -2 to completedPageRequiresGranule(granule:) started.
+◇ Test case passing 1 argument codec → .vorbis to rejectsChain(codec:) started.
+◇ Test case passing 1 argument codec → .opus to rejectsChain(codec:) started.
+✔ Test oggRejectsUnknownCodecsByName() passed after 0.004 seconds.
+✔ Test completedPageRequiresGranule(granule:) with 3 test cases passed after 0.004 seconds.
+✔ Test vorbisCodecPrivateSplitsBackIntoHeaders() passed after 0.004 seconds.
+✔ Test packetsWithinPageDoNotNeedGranules() passed after 0.004 seconds.
+✔ Test rejectsChain(codec:) with 2 test cases passed after 0.005 seconds.
+✔ Suite OggStreamRegression passed after 0.005 seconds.
+✔ Test continuedCommentDoesNotNeedGranule(codec:) with 2 test cases passed after 0.007 seconds.
+✔ Suite OggPageTests passed after 0.007 seconds.
+✔ Test decodesThirdPartyOggOpus() passed after 0.009 seconds.
+✔ Test decodesThirdPartyOggVorbis() passed after 0.009 seconds.
+✔ Test oggRoundTripIsSampleAlignedAndTrimmed(codec:) with 2 test cases passed after 0.012 seconds.
+✔ Test vorbisSurroundKeepsWAVChannelOrder() passed after 0.029 seconds.
+✔ Suite OggFLACTests passed after 0.029 seconds.
+✔ Test run with 10 tests in 3 suites passed after 0.030 seconds.

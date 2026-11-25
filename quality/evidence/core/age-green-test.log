@@ -1,0 +1,6 @@
+=== RUN   TestOpenRegularRejectsFIFO
+--- PASS: TestOpenRegularRejectsFIFO (0.00s)
+=== RUN   TestOpenRegularRejectsDirectoriesAndLinks
+--- PASS: TestOpenRegularRejectsDirectoriesAndLinks (0.00s)
+PASS
+ok  	macease.local/agebridge	0.005s

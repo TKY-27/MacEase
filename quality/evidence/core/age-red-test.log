@@ -1,0 +1,5 @@
+--- FAIL: TestOpenRegularRejectsFIFO (5.00s)
+    main_test.go:44: opening a FIFO blocked before checking its type
+FAIL
+exit status 1
+FAIL	macease.local/agebridge	5.014s
