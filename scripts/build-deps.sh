@@ -44,13 +44,13 @@ lock_field() {
 
 fetch() {
     local name="$1" url sha file
-    url="$(lock_field "$name" 5)"
-    sha="$(lock_field "$name" 4)"
+    url="$(lock_field "$name" 5)" || return
+    sha="$(lock_field "$name" 4)" || return
     file="$src/$name-$(basename "$url")"
     if [[ ! -f "$file" ]] || [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" != "$sha" ]]; then
         echo "Downloading $name" >&2
-        curl -sSLf --retry 3 -o "$file.part" "$url"
-        mv "$file.part" "$file"
+        curl -sSLf --retry 3 -o "$file.part" "$url" || return
+        mv "$file.part" "$file" || return
     fi
     if [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" != "$sha" ]]; then
         echo "error: SHA-256 mismatch for $name" >&2
@@ -61,12 +61,14 @@ fetch() {
 
 unpack() {
     local name="$1" archive dir
-    archive="$(fetch "$name")"
+    archive="$(fetch "$name")" || return
     dir="$work/$name"
-    mkdir -p "$dir"
-    tar xf "$archive" -C "$dir" --strip-components 1
+    mkdir -p "$dir" || return
+    tar xf "$archive" -C "$dir" --strip-components 1 || return
     for patch in "$root/Vendor/patches/$name"-*.patch; do
-        [[ -f "$patch" ]] && patch -d "$dir" -p1 < "$patch" >&2
+        if [[ -f "$patch" ]]; then
+            patch -d "$dir" -p1 < "$patch" >&2 || return
+        fi
     done
     echo "$dir"
 }
