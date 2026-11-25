@@ -1,6 +1,6 @@
 # MacEase quality continuation
 
-Updated: 2026-11-25, Asia/Tokyo. This branch records work in progress and
+Updated: 2026-11-26, Asia/Tokyo. This branch records work in progress and
 reproducible evidence. Do not merge this maintenance branch into the product.
 
 ## Operating constraints
@@ -359,3 +359,71 @@ measure representative archive hashing on the Mac, choose the minimal
 validated approach, add durable regression coverage, obtain two independent
 reviews, resolve findings and only then submit. Continue other portable
 investigations meanwhile; do not rerun disabled CI experiments.
+
+## Continuation run — 2026-11-26 early morning JST
+
+Restored maintenance commit `386b98140dc0255abebe3958a0f0d744cca519fa`
+(tree `a4f551de30cacbd4dbd72729ff9e59abae228d80`), enumerated the evidence
+directory and read the media-source-cache fixture and results. Main remains
+`1bf5681919034a3a79b9badff01232399ce6e1f8`; all ten feature heads and the
+disposable validation head match the prior exact SHA table. The complete
+remote branch listing has 13 refs, with no new or changed refs. The open
+PR search and individual metadata confirm #2–#5 are still open and mergeable;
+#2/#3 target main, #4/#5 target #3; all four have zero combined-status
+entries, zero PR workflow runs, and only their unchanged Copilot quota
+failure review comments. No CI trigger or settings change attempted.
+
+The task listing revealed no other enabled task. Native execution and agent
+status both returned a tunnel-client offline (>300 seconds) error. Local
+execution is Linux x86_64; GitHub git clone/ls-remote is blocked by DNS.
+Desktop concurrent work cannot be ruled out; no shared product ref was
+modified. Only this maintenance checkpoint is updated, using a non-forced
+expected-head fast-forward. Six native-gated branches and the preceding
+media-source-cache candidate remain held; no new independent reviews or PR.
+
+### Portable investigation: media source download cache poisoning
+
+Distinct from the prior source-bundle digest problem: the pinned input
+download function in `scripts/build-media-tools.sh` (main blob
+`9e13fb36664ad9c1724f1d6a66f5db2161a42478`, lines 39–65) renames the
+download into the permanent cache before checking SHA-256. On the actual
+`archive="$(fetch "$name")"` call path, Bash command substitution also
+clears errexit by default. A failed curl that writes a partial file therefore
+still proceeds to mv. A corrupt but nominally successful transfer has the
+same permanent-cache problem. The next ordinary build sees the corrupt
+cached file, refuses its hash and never retries the network.
+
+The candidate verifies the .part file before publishing it, explicitly
+propagates curl, digest pipeline and mv failures, and continues validating
+existing cached files. An existing invalid cache is still reported as an
+error; this intentionally does not auto-delete existing files. The failed
+.partial (actual suffix .part) is not promoted and is overwritten by the
+next curl attempt. This is not a concurrent-build locking solution.
+
+Reproduce with a disposable checkout of main and maintenance evidence:
+
+    python3 quality/evidence/media-download-cache/verify.py PATH_TO_MAIN/scripts/build-media-tools.sh /tmp/media-download-candidate.sh
+    bash -n /tmp/media-download-candidate.sh
+
+The local run used the fetched, verbatim field/fetch/unpack excerpt
+instead of a full checkout. A real Bash command substitution, real shasum,
+cut, awk and mv operated on temporary files; curl alone was a deterministic
+fault injector (no external downloads). The six two-attempt cases were run
+on each implementation, 24 invocations total. Baseline published corrupt
+bytes for both failed and successful-partial downloads and refused the next
+attempt (one curl invocation); candidate did not publish them, then accepted
+the valid retry (two curl invocations). A nonzero curl exit with complete
+matching bytes was also wrongly treated as success on baseline; candidate
+propagated it and accepted a later successful retry. Intact cache, valid
+download and existing invalid cache controls behaved as expected. Both
+extracted shell bodies and the candidate excerpt passed bash -n.
+See `quality/evidence/media-download-cache/results.txt`. No actual native
+media build, real-network failure injection, or independent review took place.
+
+Next: integrate and independently review the two media cache candidates
+without duplicating or conflating their fixes. Test hash-tool and rename
+failure, normal real curl transfer and retry, and the existing cache case
+on the full script. The AI audio builder independently renames its .part
+file before checksum verification; inspect and reproduce that separately
+if worthwhile. No product branch or PR until the review gate is satisfied.
+Prioritize the six pending native gates as soon as the Mac reconnects.

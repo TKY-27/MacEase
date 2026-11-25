@@ -1,0 +1,12 @@
+baseline: valid, cache=False: first=0, published=True, retry=0, downloads=1
+baseline: corrupt, cache=False: first=1, published=True, retry=1, downloads=1
+baseline: failed-partial, cache=False: first=1, published=True, retry=1, downloads=1
+baseline: failed-complete, cache=False: first=0, published=True, retry=0, downloads=1
+baseline: unused, cache=True: first=0, published=True, retry=0, downloads=0
+baseline: unused, cache=True: first=1, published=True, retry=1, downloads=0
+candidate: valid, cache=False: first=0, published=True, retry=0, downloads=1
+candidate: corrupt, cache=False: first=1, published=False, retry=0, downloads=2
+candidate: failed-partial, cache=False: first=1, published=False, retry=0, downloads=2
+candidate: failed-complete, cache=False: first=1, published=False, retry=0, downloads=2
+candidate: unused, cache=True: first=0, published=True, retry=0, downloads=0
+candidate: unused, cache=True: first=1, published=True, retry=1, downloads=0
