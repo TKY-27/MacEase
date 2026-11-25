@@ -140,10 +140,16 @@ public enum DuplicateScanner {
         var sets: [[URL]] = []
         while let first = remaining.first {
             try Task.checkCancellation()
-            let identical = remaining.filter {
-                $0 == first || FileManager.default.contentsEqual(atPath: first.path, andPath: $0.path)
+            var identical: [URL] = []
+            var different: [URL] = []
+            for url in remaining {
+                if url == first || FileManager.default.contentsEqual(atPath: first.path, andPath: url.path) {
+                    identical.append(url)
+                } else {
+                    different.append(url)
+                }
             }
-            remaining.removeAll { identical.contains($0) }
+            remaining = different
             if identical.count > 1 { sets.append(identical) }
         }
         return sets

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Duplicate scans avoid quadratic path comparisons in large groups of identical files.
+
 ### Added
 
 - Finder Preview stays on as a setting: turn it on from the Finder menu, the
