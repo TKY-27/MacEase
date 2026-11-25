@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import hashlib
 import io
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -105,6 +107,68 @@ class DependencyUnpackTests(unittest.TestCase):
         self.assert_failed(self.build())
         self.assertTrue(partial.is_file())
         self.assertFalse(self.cache.exists())
+
+
+class DependencyBuildStampTests(unittest.TestCase):
+    def setUp(self):
+        workspace = tempfile.TemporaryDirectory(prefix="MacEase build stamp tests ")
+        self.addCleanup(workspace.cleanup)
+        self.root = Path(workspace.name)
+        repository = Path(__file__).resolve().parent.parent
+        for relative in (
+            "scripts/generate-notices.sh", "scripts/build-hatchzip.sh", "Vendor/deps.lock",
+            "Native/HatchZip/Cargo.toml", "Native/HatchZip/Cargo.lock", "Native/HatchZip/src/main.rs",
+            "Vendor/licenses/swift-corelibs-foundation/LICENSE",
+        ):
+            destination = self.root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(repository / relative, destination)
+        for relative in ("Vendor/JSONCompare", "Vendor/patches"):
+            shutil.copytree(repository / relative, self.root / relative)
+        self.driver = self.root / "scripts/build-deps.sh"
+        self.driver.write_text(SCRIPT[:SCRIPT.index("\njobs=")] + """
+printf 'started\\n' >> "$root/attempts"
+mkdir -p "$out/CNative.xcframework"
+printf '#!/bin/sh\\n' > "$out/macease-hatchzip"
+chmod +x "$out/macease-hatchzip"
+printf 'partial notices\\n' > "$out/THIRD_PARTY_NOTICES.txt"
+if [[ "${MACEASE_TEST_BUILD_FAIL:-0}" == 1 ]]; then exit 71; fi
+printf 'complete notices\\n' > "$out/THIRD_PARTY_NOTICES.txt"
+echo "$stamp" > "$stamp_file"
+""")
+        commands = self.root / "bin"
+        commands.mkdir()
+        for name in ("cmake", "meson", "ninja", "pkg-config", "make", "python3", "cargo"):
+            command = commands / name
+            command.write_text("#!/bin/sh\nexit 0\n")
+            command.chmod(0o755)
+        self.environment = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"])
+        self.notices = self.root / "Vendor/build/THIRD_PARTY_NOTICES.txt"
+
+    def build(self, *, force=False, fail=False):
+        return subprocess.run(
+            ["bash", str(self.driver), *(["--force"] if force else [])],
+            env=dict(self.environment, MACEASE_TEST_BUILD_FAIL="1" if fail else "0"),
+            capture_output=True, text=True, timeout=10,
+        )
+
+    def test_unchanged_cache_skips_rebuild(self):
+        for _ in range(2):
+            result = self.build()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / "attempts").read_text().splitlines(), ["started"])
+        self.assertEqual(self.notices.read_text(), "complete notices\n")
+
+    def test_retry_rebuilds_after_partial_failure(self):
+        result = self.build()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = self.build(force=True, fail=True)
+        self.assertEqual(result.returncode, 71, result.stdout + result.stderr)
+        self.assertEqual(self.notices.read_text(), "partial notices\n")
+        result = self.build()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / "attempts").read_text().splitlines(), ["started"] * 3)
+        self.assertEqual(self.notices.read_text(), "complete notices\n")
 
 
 if __name__ == "__main__":
