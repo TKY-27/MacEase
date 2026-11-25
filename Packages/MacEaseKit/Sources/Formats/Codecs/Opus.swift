@@ -117,9 +117,9 @@ public final class OpusAudioDecoder {
 
     /// Interleaved 48 kHz samples.
     public func decode(_ packet: Data) throws -> [Float] {
-        guard let packetBytes = Int32(exactly: packet.count) else {
+        guard let packetBytes = Int32(exactly: packet.count), packetBytes > 0 else {
             throw FormatError.corrupt(
-                String(localized: "Audio packet size out of range", comment: "Rejects oversized audio packet"))
+                String(localized: "Audio packet size out of range", comment: "Rejects invalid audio packet sizes"))
         }
         var output = [Float](repeating: 0, count: Self.maximumFrame * channels)
         let decoded = packet.withUnsafeBytes { bytes in
