@@ -83,11 +83,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           dmg="dist/MacEase-$MACEASE_VERSION.dmg"
-          if [[ ! -f "$dmg" ]]; then
-            echo "::error::$dmg is missing; does MARKETING_VERSION in project.yml match the tag?"
-            exit 1
-          fi
-          gh release create "$GITHUB_REF_NAME" "$dmg" "$dmg.sha256" \
+          sources="dist/MacEase-$MACEASE_VERSION-media-tools-sources.tar.xz"
+          assets=("$dmg" "$dmg.sha256" "$sources" "$sources.sha256")
+          for artifact in "${assets[@]}"; do
+            if [[ ! -s "$artifact" ]]; then
+              echo "::error::$artifact is missing or empty; check the packaged version against the tag"
+              exit 1
+            fi
+          done
+          (
+            cd dist
+            for artifact in "$(basename "$dmg")" "$(basename "$sources")"; do
+              checksum="$(shasum -a 256 "$artifact")"
+              if [[ "$checksum" != "$(cat "$artifact.sha256")" ]]; then
+                echo "::error::$artifact does not match its checksum file"
+                exit 1
+              fi
+            done
+          )
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --verify-tag --title "MacEase $MACEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
 
       - name: Delete signing keychain

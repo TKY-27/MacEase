@@ -120,9 +120,11 @@ contributors too.
    local build, test, lint, and packaging checks for the release sources.
 5. Create and push `v<version>`. The release workflow requires the
    `MACEASE_CERT_P12_BASE64` and `MACEASE_CERT_PASSWORD` repository
-   secrets. It publishes the signed DMG, checksum, and matching changelog notes.
+   secrets. It publishes the signed DMG, matching media-tools source archive,
+   both checksums, and matching changelog notes.
    When Actions is disabled, keep it disabled and use `gh release create` with
-   `--verify-tag`, the locally verified DMG and checksum, and matching notes.
+   `--verify-tag`, the locally verified DMG and source archive, both checksums,
+   and matching notes.
    Build those assets from the tagged commit. Never run automatic and manual
    publication for the same tag.
 6. Download the published assets, verify the checksum, and confirm the public
