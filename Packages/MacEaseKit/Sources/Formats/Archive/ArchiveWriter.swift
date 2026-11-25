@@ -12,6 +12,21 @@ public enum ArchiveWriter {
 
         var isDirectory: Bool { status.st_mode & S_IFMT == S_IFDIR }
         var isRegularFile: Bool { status.st_mode & S_IFMT == S_IFREG }
+
+        func validate(_ descriptor: Int32) throws {
+            var current = stat()
+            guard fstat(descriptor, &current) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            guard current.st_mode & S_IFMT == S_IFREG,
+                current.st_dev == status.st_dev, current.st_ino == status.st_ino,
+                current.st_size == status.st_size,
+                current.st_mtimespec.tv_sec == status.st_mtimespec.tv_sec,
+                current.st_mtimespec.tv_nsec == status.st_mtimespec.tv_nsec,
+                current.st_ctimespec.tv_sec == status.st_ctimespec.tv_sec,
+                current.st_ctimespec.tv_nsec == status.st_ctimespec.tv_nsec
+            else { throw FormatError.io("archive source changed: \(name)") }
+        }
     }
 
     /// Symlinks are stored as links, never followed.
@@ -35,17 +50,25 @@ public enum ArchiveWriter {
         try ArchiveListing.inUTF8Locale {
             guard let archive = archive_write_new() else { throw FormatError.io("libarchive allocation") }
             defer { archive_write_free(archive) }
-            try configure(archive, for: format)
-            try check(archive_write_open_filename(archive, destination.path), archive)
-            var written: Int64 = 0
-            for member in members {
-                try Task.checkCancellation()
-                try add(member, to: archive) { bytes in
-                    written += Int64(bytes)
-                    progress(Double(written) / Double(total))
+            do {
+                try configure(archive, for: format)
+                let descriptor = open(destination.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o666)
+                guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                defer { close(descriptor) }
+                try check(archive_write_open_fd(archive, descriptor), archive)
+                var written: Int64 = 0
+                for member in members {
+                    try Task.checkCancellation()
+                    try add(member, to: archive) { bytes in
+                        written += Int64(bytes)
+                        progress(Double(written) / Double(total))
+                    }
                 }
+                try check(archive_write_close(archive), archive)
+            } catch {
+                archive_write_fail(archive)
+                throw error
             }
-            try check(archive_write_close(archive), archive)
         }
     }
 
@@ -93,14 +116,24 @@ public enum ArchiveWriter {
         }
         try check(archive_write_header(archive, entry), archive)
         guard member.isRegularFile else { return }
-        let reader = try FileHandle(forReadingFrom: URL(fileURLWithPath: member.path))
+        let descriptor = open(member.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let reader = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? reader.close() }
+        try member.validate(descriptor)
+        var remaining = Int64(member.status.st_size)
         while let chunk = try reader.readChunk(upToCount: chunkSize), !chunk.isEmpty {
             try Task.checkCancellation()
+            guard Int64(chunk.count) <= remaining else {
+                throw FormatError.io("archive source changed: \(member.name)")
+            }
             let count = chunk.withUnsafeBytes { archive_write_data(archive, $0.baseAddress, $0.count) }
             guard count == chunk.count else { throw FormatError.encoderFailure(ArchiveListing.message(archive)) }
+            remaining -= Int64(count)
             wrote(count)
         }
+        guard remaining == 0 else { throw FormatError.io("archive source changed: \(member.name)") }
+        try member.validate(descriptor)
     }
 
     private static func check(_ status: Int32, _ archive: OpaquePointer) throws {

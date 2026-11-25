@@ -204,6 +204,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Folder compression rejects files changed during reading or replaced after
+  scanning, preventing padded archive contents and following replacement links.
+
 - Opening a MOV or MP4 whose audio codec macOS cannot decode, such as Vorbis,
   could stop MacEase; it now reports an error or uses the FFmpeg fallback.
 
