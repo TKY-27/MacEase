@@ -293,3 +293,69 @@ updating refs with expected_sha. Main has not been changed by this work.
 | `quality/dependency-unpack-errors` | `3d7222a54c053e4304acebb9afe5911e85285663` | `102e13a96d47dfba064ff6b1c74c434254821b35` |
 | `quality/age-test-gate` | `24432f0da2f4c1b388b2ee02c2a2ff205a167137` | `15f2541f447ffe75ffbf74bfca162dadbdbd6fb3` |
 | `quality/dependency-rebuild-stamp` | `10929833372a1bece986ae9a094bf6d80ffe66d2` | `17fc3faa39138900e289897c1e18d34ed0e5f6ed` |
+
+## Continuation run — 2026-11-25 evening JST
+
+Restored the checkpoint at `26ef267af13452b984200a7ba406065736b313db` (tree
+`cdadebd98e1d5fd8e39be5281bc3a738d2032551`), enumerated its evidence tree, and read core/formats
+README and independent review records. Read current AGENTS, relevant SPEC
+sections and CONTRIBUTING. Main and all ten feature heads still match the
+remote table above; the disposable validation branch is
+`41eb4dce27090e99fa40eb76286a29ebc250d4e8`. No unexpected branches or
+remote edits found. The automation listing showed no other enabled task for
+this repository. Native connector and agent status calls both failed because
+the tunnel client was offline for over 300 seconds; local execution is Linux
+and direct GitHub clone fails DNS resolution. Local desktop worktree activity
+could not be inspected, so no shared product branch was changed. The maintenance
+update uses the checked expected parent and a non-forced fast-forward.
+
+PRs #2–#5 remain open and mergeable, with heads as above. #2 and #3 still target
+main; #4 and #5 still target #3. Each of the four has zero commit statuses and
+zero pull-request workflow runs. Each has a Copilot review-quota failure
+comment (not an approval or substantive review); no actionable review
+findings were returned. Keep Actions disabled. Six reviewed native changes
+remain held unchanged; no new PR or native validation this run.
+
+### New portable investigation: media source cache integrity
+
+Baseline `scripts/build-media-tools.sh` blob `9e13fb36664ad9c1724f1d6a66f5db2161a42478` checks
+only the existence of the corresponding source archive on cache hits. If it
+is truncated, zeroed, or changed without changing its size after a successful
+build, the cache reports success. `scripts/make-dmg.sh` then copies that
+archive and computes a new SHA-256, so even PR #2's release checksum association
+does not establish that the archive still matches the source used for the
+runtime. SPEC and docs/media-tools.md require exact corresponding sources.
+
+Candidate: record the source archive digest alongside the existing input
+stamp after successful archive generation, verify it on a cache hit, and
+fall through to rebuild if missing or mismatched. The proposal and fixture
+are preserved in `quality/evidence/media-source-cache/verify.py`, which can
+generate a candidate script from the exact baseline. No product branch or
+PR: zero new independent reviews (agent connector offline), and no native
+build or release packaging. Reproduce with an isolated checkout at main:
+
+    python3 quality/evidence/media-source-cache/verify.py PATH_TO_BASELINE/scripts/build-media-tools.sh /tmp/candidate.sh
+    bash -n /tmp/candidate.sh
+
+The executed Linux fixture used the verbatim fetched startup and final stamp
+statements, copied into a local reduced script; it replaces native preflight
+and everything beyond it with exit 42, and uses stub executables for the
+runtime isolation invocation. Hashing and cache conditions use actual Bash
+and shasum. Baseline wrongly accepted all three altered archive fixtures;
+candidate rejected them and preserved intact, missing, stale-input and forced
+controls (8 cache cases total, plus stamp writer). Reduced candidate shell
+syntax passed. `results.txt` records actual outputs. Full source checkout
+replay, native build, and independent reviews are still outstanding.
+Hashing a synthetic cached 128 MiB file with shasum took 0.610 s median
+(three Linux samples); this is added I/O, not a Mac benchmark. Before
+submission, reviewers should consider release-only verification if ordinary
+build overhead outweighs the stronger cache guarantee, error paths, and
+rebuild behavior. This is accidental corruption detection, not protection
+against a same-user adversary or mutations between verification and copying.
+
+Next: when the Mac and agents are available, first finish the six existing
+native gates. Reproduce the media cache fixture with the complete source,
+measure representative archive hashing on the Mac, choose the minimal
+validated approach, add durable regression coverage, obtain two independent
+reviews, resolve findings and only then submit. Continue other portable
+investigations meanwhile; do not rerun disabled CI experiments.

@@ -1,0 +1,19 @@
+baseline: intact: exit=0, expected=0
+baseline: truncated: exit=0, expected=42
+baseline: empty: exit=0, expected=42
+baseline: same-size mutation: exit=0, expected=42
+baseline: missing: exit=42, expected=42
+baseline: stale inputs: exit=42, expected=42
+baseline: forced: exit=42, expected=42
+baseline: stamp writer: matches expected contents
+candidate: intact: exit=0, expected=0
+candidate: truncated: exit=42, expected=42
+candidate: empty: exit=42, expected=42
+candidate: same-size mutation: exit=42, expected=42
+candidate: missing: exit=42, expected=42
+candidate: stale inputs: exit=42, expected=42
+candidate: forced: exit=42, expected=42
+candidate: missing digest: exit=42, expected=42
+candidate: stamp writer: matches expected contents
+
+Synthetic 128 MiB cached SHA-256 seconds: [0.602, 0.61, 0.648] median: 0.61
