@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, quality/validation-main-20261125]
   pull_request:
     branches: [main]
 
