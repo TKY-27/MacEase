@@ -165,8 +165,12 @@ final class OggPacketReader {
             guard ogg_stream_init(stream, pageSerial) == 0 else { throw FormatError.corrupt("ogg_stream_init") }
             serial = pageSerial
         }
-        if pageSerial == serial, ogg_stream_pagein(stream, &page) != 0 {
-            throw FormatError.corrupt("Ogg page rejected")
+        if pageSerial == serial {
+            guard ogg_page_packets(&page) == 0 || ogg_page_granulepos(&page) >= 0 else {
+                throw FormatError.corrupt(
+                    String(localized: "Ogg granule out of range", comment: "Invalid audio timeline"))
+            }
+            guard ogg_stream_pagein(stream, &page) == 0 else { throw FormatError.corrupt("Ogg page rejected") }
         }
         return true
     }

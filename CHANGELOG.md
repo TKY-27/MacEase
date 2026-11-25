@@ -204,6 +204,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Ogg audio rejects completed pages with missing sample positions before decoding,
+  preventing unbounded buffering of malformed streams.
+
 - Opening a MOV or MP4 whose audio codec macOS cannot decode, such as Vorbis,
   could stop MacEase; it now reports an error or uses the FFmpeg fallback.
 
