@@ -19,17 +19,17 @@ struct DownloadSubtitles {
             throw invalid()
         }
         let vtt = url.pathExtension == "vtt"
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var cursor = 0
         if vtt {
             guard let header = lines.first, header == "WEBVTT" || header.hasPrefix("WEBVTT ") else { throw invalid() }
-            while !lines.isEmpty && !lines[0].isEmpty { lines.removeFirst() }
+            while cursor < lines.count && !lines[cursor].isEmpty { cursor += 1 }
         }
         let expression = try NSRegularExpression(
             pattern:
                 #"^(?:(\d{2,4}):)?([0-5]\d):([0-5]\d)[.,](\d{3}) --> (?:(\d{2,4}):)?([0-5]\d):([0-5]\d)[.,](\d{3})(?:[ \t].*)?$"#
         )
         var count = 0
-        var cursor = 0
         while cursor < lines.count {
             while cursor < lines.count && lines[cursor].isEmpty { cursor += 1 }
             guard cursor < lines.count else { break }

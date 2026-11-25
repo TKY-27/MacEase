@@ -437,6 +437,24 @@ import Testing
         }
     }
 
+    @Test(arguments: [
+        ("\n00:00:01.000 --> 00:00:02.000\nCaption\n", true),
+        ("", false),
+        ("00:00:01.000 --> 00:00:02.000\nCaption\n", false),
+    ])
+    func validatesLongVTTHeaders(suffix: String, valid: Bool) throws {
+        let fixture = try DownloadFixture()
+        defer { fixture.remove() }
+        let subtitle = fixture.root.appending(path: "captions.vtt")
+        let text = "WEBVTT\n" + String(repeating: "Metadata\n", count: 32_768) + suffix
+        try Data(text.utf8).write(to: subtitle)
+        if valid {
+            try DownloadSubtitles.validate(subtitle)
+        } else {
+            #expect(throws: EngineError.self) { try DownloadSubtitles.validate(subtitle) }
+        }
+    }
+
     @Test func phaseSnapshotsResetMeasurementsAndPreserveOrdering() async throws {
         let fixture = try DownloadFixture()
         defer { fixture.remove() }

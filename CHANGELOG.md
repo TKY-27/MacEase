@@ -204,6 +204,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Subtitle validation no longer repeatedly copies lines while reading long WebVTT headers.
+
 - Opening a MOV or MP4 whose audio codec macOS cannot decode, such as Vorbis,
   could stop MacEase; it now reports an error or uses the FFmpeg fallback.
 
