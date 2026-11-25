@@ -7,7 +7,7 @@ SOURCES := App AppTests FinderSync Packages
 XCODEBUILD := xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination 'platform=macOS,arch=arm64' \
 	-derivedDataPath $(DERIVED_DATA)
 
-.PHONY: bootstrap deps media-tools toolkit project build test test-app test-device lint format dmg
+.PHONY: bootstrap deps media-tools toolkit project build test test-age test-app test-device lint format dmg
 
 bootstrap:
 	brew list xcodegen cmake meson ninja pkg-config >/dev/null 2>&1 || brew install xcodegen cmake meson ninja pkg-config
@@ -44,7 +44,11 @@ build: project
 test:
 	python3 scripts/test-build-deps.py
 	"$(MEDIA_TOOLS)/python3" -I -B scripts/verify-js-isolation.py "$(MEDIA_TOOLS)/qjs"
+	$(MAKE) test-age
 	MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --no-parallel --package-path $(PACKAGE)
+
+test-age:
+	cd Vendor/AgeBridge && GOTOOLCHAIN=local CGO_ENABLED=0 go test -mod=readonly -count=1 ./...
 
 test-app: project
 	$(XCODEBUILD) -configuration DebugTests test
@@ -53,6 +57,7 @@ test-app: project
 test-device: build
 	python3 scripts/test-build-deps.py
 	"$(MEDIA_TOOLS)/python3" -I -B scripts/verify-js-isolation.py "$(MEDIA_TOOLS)/qjs"
+	$(MAKE) test-age
 	MACEASE_DEVICE_TESTS=1 MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --no-parallel --package-path $(PACKAGE)
 	$(MAKE) test-app
 

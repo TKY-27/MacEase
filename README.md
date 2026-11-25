@@ -861,6 +861,7 @@ make test-app
 ```
 
 `make test` first runs regression tests for dependency build scripts, then verifies that the bundled JavaScript solver cannot access files, processes or the network.
+It also runs the Go encryption bridge tests before the Swift package tests; `make test-age` runs those bridge tests alone.
 
 Package acceptance runs suites sequentially to avoid resource contention; concurrency tests still exercise parallel work.
 App-hosted tests use the separate `DebugTests` configuration and `MacEase Tests`
