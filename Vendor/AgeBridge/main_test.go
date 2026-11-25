@@ -2,18 +2,74 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"filippo.io/age"
 )
 
 const testPassword = "correct horse battery staple"
+
+func TestOpenRegularRejectsFIFO(t *testing.T) {
+	if fifo := os.Getenv("MACEASE_TEST_FIFO"); fifo != "" {
+		file, err := openRegular(fifo)
+		if file != nil {
+			if closeErr := file.Close(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+		}
+		if err == nil || categoryFor(err) != failureIO {
+			t.Fatalf("expected a non-regular input failure, got %v", err)
+		}
+		return
+	}
+	fifo := filepath.Join(t.TempDir(), "input")
+	if err := syscall.Mkfifo(fifo, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestOpenRegularRejectsFIFO$")
+	command.Env = append(os.Environ(), "MACEASE_TEST_FIFO="+fifo)
+	output, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatal("opening a FIFO blocked before checking its type")
+	}
+	if err != nil {
+		t.Fatalf("FIFO probe failed: %v\n%s", err, output)
+	}
+}
+
+func TestOpenRegularRejectsDirectoriesAndLinks(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.WriteFile(source, []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(source, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{root, link} {
+		file, err := openRegular(path)
+		if file != nil {
+			if closeErr := file.Close(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+		}
+		if err == nil {
+			t.Fatalf("accepted a non-regular input: %s", path)
+		}
+	}
+}
 
 func frame(password string) io.Reader {
 	var buffer bytes.Buffer
