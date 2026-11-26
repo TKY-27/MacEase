@@ -25,6 +25,9 @@ if [[ "${1:-}" != "--force" && -f "$stamp_file" && "$(cat "$stamp_file")" == "$s
     exit 0
 fi
 
+# Interrupted rebuilds must not inherit success.
+rm -f "$stamp_file"
+
 for tool in cmake meson ninja pkg-config make python3 cargo; do
     command -v "$tool" >/dev/null || { echo "error: $tool is missing; run make bootstrap" >&2; exit 1; }
 done

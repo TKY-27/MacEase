@@ -204,6 +204,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Retrying a failed native dependency rebuild no longer accepts its partial
+  outputs as an up-to-date cache.
+
 - Native dependency builds stop when downloading, unpacking, or applying a pinned
   patch fails instead of continuing with incomplete or unpatched sources.
 
