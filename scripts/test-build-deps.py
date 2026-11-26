@@ -57,7 +57,7 @@ class DependencyUnpackTests(unittest.TestCase):
 
     def build(self):
         return subprocess.run(
-            ["bash", str(self.driver), str(self.root)], capture_output=True, text=True, timeout=10
+            ["/bin/bash", str(self.driver), str(self.root)], capture_output=True, text=True, timeout=10
         )
 
     def assert_failed(self, result):
@@ -147,7 +147,7 @@ echo "$stamp" > "$stamp_file"
 
     def build(self, *, force=False, fail=False):
         return subprocess.run(
-            ["bash", str(self.driver), *(["--force"] if force else [])],
+            ["/bin/bash", str(self.driver), *(["--force"] if force else [])],
             env=dict(self.environment, MACEASE_TEST_BUILD_FAIL="1" if fail else "0"),
             capture_output=True, text=True, timeout=10,
         )
