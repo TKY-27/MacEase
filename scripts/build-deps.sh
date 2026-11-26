@@ -63,11 +63,15 @@ fetch() {
 }
 
 unpack() {
-    local name="$1" archive dir
+    local name="$1" archive dir errors
     archive="$(fetch "$name")" || return
     dir="$work/$name"
     mkdir -p "$dir" || return
-    tar xf "$archive" -C "$dir" --strip-components 1 || return
+    # bsdtar skips damaged members yet exits 0.
+    if ! errors="$(tar xf "$archive" -C "$dir" --strip-components 1 2>&1)" || [[ -n "$errors" ]]; then
+        printf '%s\nerror: could not unpack %s\n' "$errors" "$name" >&2
+        return 1
+    fi
     for patch in "$root/Vendor/patches/$name"-*.patch; do
         if [[ -f "$patch" ]]; then
             patch -d "$dir" -p1 < "$patch" >&2 || return
