@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-11-26
+
 ### Added
 
 - Finder Preview stays on as a setting: turn it on from the Finder menu, the
