@@ -63,7 +63,8 @@ Run from the repository root.
 | Rebuild native dependencies only | `scripts/build-deps.sh` |
 | Generate the Xcode project | `xcodegen generate` |
 | Build the app (Debug) | `make build` |
-| Unit tests (package) | `make test` (checks dependency build scripts and JS isolation, then runs sequential package tests with the pinned media runtime) |
+| Unit tests (build scripts, bridge, package) | `make test` (checks dependency scripts and JS isolation, then runs Go bridge and sequential Swift package tests) |
+| Encryption bridge tests only | `make test-age` (uses the installed Go toolchain and pinned module dependencies) |
 | App-hosted editor regression tests | `make test-app` |
 | Full tests on a real Mac, including capability-gated and app-hosted tests | `make test-device` |
 | Lint | `make lint` (runs `swift format lint --strict --recursive App AppTests FinderSync Packages`) |
@@ -90,6 +91,7 @@ contributors too.
 
 ## Tests
 
+- `make test` and `make test-device` run the Go bridge suite before the Swift package tests.
 - Add or update tests for every behavior change.
 - Tests that need hardware encoders, Apple Intelligence or downloadable OS
   assets must probe the capability and skip only when it is missing.
