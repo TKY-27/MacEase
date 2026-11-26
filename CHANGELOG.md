@@ -204,6 +204,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Native dependency builds stop when downloading, unpacking, or applying a pinned
+  patch fails instead of continuing with incomplete or unpatched sources.
+
 - Opening a MOV or MP4 whose audio codec macOS cannot decode, such as Vorbis,
   could stop MacEase; it now reports an error or uses the FFmpeg fallback.
 
